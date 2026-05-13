@@ -1,5 +1,5 @@
-import { COLS, ROWS, CELL, GHOST_ALPHA } from '../utils/constants.js';
-import { BG_COLOR, GRID_COLOR, GRID_LINE_COLOR, getPieceColor, roundRect } from '../utils/colors.js';
+import { COLS, ROWS, CELL } from '../utils/constants.js';
+import { GRID_COLOR, GRID_LINE_COLOR, GHOST_ALPHA, getPieceColor, roundRect, drawBackdrop, drawPanel } from '../utils/colors.js';
 
 // Renders the board, pieces, ghost piece, and effects on the canvas
 
@@ -25,14 +25,14 @@ export class Renderer {
 
     // Board is centered, with room for HUD on sides or top
     this.cellSize = Math.floor(Math.min(
-      (w * 0.6) / COLS,
-      (h * 0.85) / ROWS,
-      36 // max cell size
+      (w * 0.58) / COLS,
+      (h * 0.78) / ROWS,
+      34 // max cell size
     ));
     this.boardW = COLS * this.cellSize;
     this.boardH = ROWS * this.cellSize;
     this.boardX = Math.floor((w - this.boardW) / 2);
-    this.boardY = Math.floor((h - this.boardH) / 2);
+    this.boardY = Math.floor((h - this.boardH) / 2 + 10);
   }
 
   clear() {
@@ -40,9 +40,8 @@ export class Renderer {
     const w = this.canvas.width;
     const h = this.canvas.height;
 
-    // Dark background
-    ctx.fillStyle = BG_COLOR;
-    ctx.fillRect(0, 0, w, h);
+    drawBackdrop(ctx, w, h, Date.now());
+    drawPanel(ctx, this.boardX - 8, this.boardY - 8, this.boardW + 16, this.boardH + 16, 'rgba(124,246,255,0.42)', 0.92);
 
     // Subtle grid pattern on the background
     ctx.fillStyle = GRID_COLOR;
@@ -63,14 +62,12 @@ export class Renderer {
 
     // Board border glow
     ctx.save();
-    ctx.strokeStyle = '#00ffff';
-    ctx.shadowColor = '#00ffff';
-    ctx.shadowBlur = 10;
+    ctx.strokeStyle = '#7cf6ff';
+    ctx.shadowColor = '#22dfff';
+    ctx.shadowBlur = 18;
     ctx.lineWidth = 2;
-    ctx.strokeRect(
-      this.boardX - 1, this.boardY - 1,
-      this.boardW + 2, this.boardH + 2
-    );
+    roundRect(ctx, this.boardX - 4, this.boardY - 4, this.boardW + 8, this.boardH + 8, 10);
+    ctx.stroke();
     ctx.restore();
 
     // Grid lines
@@ -141,10 +138,12 @@ export class Renderer {
     if (alpha < 1) {
       // Ghost piece: just an outline
       ctx.strokeStyle = color.glow;
-      ctx.lineWidth = 1.5;
+      ctx.lineWidth = 2;
       ctx.globalAlpha = alpha * 2;
+      ctx.setLineDash([4, 4]);
       roundRect(ctx, x + pad + 1, y + pad + 1, cs - pad * 2 - 2, cs - pad * 2 - 2, 3);
       ctx.stroke();
+      ctx.setLineDash([]);
     } else {
       // Solid piece with neon glow
       const gx = x + pad;
@@ -154,25 +153,28 @@ export class Renderer {
 
       // Glow
       ctx.shadowColor = color.glow;
-      ctx.shadowBlur = 6;
+      ctx.shadowBlur = 10;
       ctx.fillStyle = color.fill;
-      roundRect(ctx, gx, gy, gw, gh, 3);
+      roundRect(ctx, gx, gy, gw, gh, 5);
       ctx.fill();
 
       // Inner highlight (top-left lighter)
       ctx.shadowBlur = 0;
       const grad = ctx.createLinearGradient(gx, gy, gx + gw, gy + gh);
-      grad.addColorStop(0, 'rgba(255,255,255,0.25)');
-      grad.addColorStop(0.4, 'rgba(255,255,255,0.05)');
-      grad.addColorStop(1, 'rgba(0,0,0,0.2)');
+      grad.addColorStop(0, 'rgba(255,255,255,0.46)');
+      grad.addColorStop(0.35, 'rgba(255,255,255,0.08)');
+      grad.addColorStop(1, 'rgba(0,0,0,0.30)');
       ctx.fillStyle = grad;
-      roundRect(ctx, gx, gy, gw, gh, 3);
+      roundRect(ctx, gx, gy, gw, gh, 5);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.28)';
+      roundRect(ctx, gx + 4, gy + 4, Math.max(4, gw - 8), Math.max(3, gh * 0.18), 3);
       ctx.fill();
 
       // Border
       ctx.strokeStyle = 'rgba(255,255,255,0.3)';
       ctx.lineWidth = 1;
-      roundRect(ctx, gx, gy, gw, gh, 3);
+      roundRect(ctx, gx + 0.5, gy + 0.5, gw - 1, gh - 1, 5);
       ctx.stroke();
     }
 

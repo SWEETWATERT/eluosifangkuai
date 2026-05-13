@@ -44,13 +44,13 @@ export const FEVER_SCORE_MULTIPLIER = 2;
 
 // Piece colors (neon theme)
 export const PIECE_COLORS = {
-  I: { fill: '#00f0f0', glow: '#00ffff', name: 'cyan' },
-  O: { fill: '#f0f000', glow: '#ffff00', name: 'yellow' },
-  T: { fill: '#a000f0', glow: '#c840ff', name: 'purple' },
-  S: { fill: '#00f000', glow: '#00ff40', name: 'green' },
-  Z: { fill: '#f00000', glow: '#ff4040', name: 'red' },
-  J: { fill: '#0000f0', glow: '#4040ff', name: 'blue' },
-  L: { fill: '#f0a000', glow: '#ffb840', name: 'orange' },
+  I: { fill: '#22dfff', glow: '#7cf6ff', name: 'cyan' },
+  O: { fill: '#ffe45e', glow: '#fff2a8', name: 'yellow' },
+  T: { fill: '#b767ff', glow: '#e2b5ff', name: 'purple' },
+  S: { fill: '#34f389', glow: '#a5ffc7', name: 'green' },
+  Z: { fill: '#ff5b7d', glow: '#ffa3b5', name: 'red' },
+  J: { fill: '#4d7dff', glow: '#a9c0ff', name: 'blue' },
+  L: { fill: '#ffab45', glow: '#ffd39a', name: 'orange' },
 };
 
 // Ad unit IDs (placeholders — replace with real IDs from WeChat MP platform)

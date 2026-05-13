@@ -13,7 +13,8 @@
       "ignore": [],
       "disablePlugins": [],
       "outputPath": ""
-    }
+    },
+    "minifyWXML": true
   },
   "appid": "wxbc48ae6bb824e77a",
   "projectname": "tetris-block-battle",

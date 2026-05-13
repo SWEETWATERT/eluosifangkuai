@@ -1,15 +1,15 @@
 import { PIECE_COLORS } from './constants.js';
 
-// Neon theme
-export const BG_COLOR = '#0a0a1a';
-export const GRID_COLOR = '#1a1a3a';
-export const GRID_LINE_COLOR = '#2a2a4a';
+// Neon glass arcade theme
+export const BG_COLOR = '#070a18';
+export const GRID_COLOR = 'rgba(124,246,255,0.035)';
+export const GRID_LINE_COLOR = 'rgba(124,246,255,0.12)';
 export const GHOST_ALPHA = 0.15;
 export const TEXT_COLOR = '#ffffff';
-export const TEXT_GLOW = '#00ffff';
-export const ACCENT_COLOR = '#ff00ff';
-export const FEVER_COLOR = '#ff4400';
-export const FEVER_GLOW = '#ff8844';
+export const TEXT_GLOW = '#22dfff';
+export const ACCENT_COLOR = '#ff6fd8';
+export const FEVER_COLOR = '#ffab45';
+export const FEVER_GLOW = '#ffd39a';
 
 // Get piece color data
 export function getPieceColor(type) {
@@ -32,6 +32,7 @@ export function lerpColor(c1, c2, t) {
 
 // Draw a rounded rect
 export function roundRect(ctx, x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.lineTo(x + w - r, y);
@@ -43,6 +44,58 @@ export function roundRect(ctx, x, y, w, h, r) {
   ctx.lineTo(x, y + r);
   ctx.arcTo(x, y, x + r, y, r);
   ctx.closePath();
+}
+
+export function drawBackdrop(ctx, w, h, time = 0) {
+  const bg = ctx.createLinearGradient(0, 0, w, h);
+  bg.addColorStop(0, '#070a18');
+  bg.addColorStop(0.48, '#101535');
+  bg.addColorStop(1, '#060812');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  const cyan = ctx.createRadialGradient(w * 0.22, h * 0.18, 0, w * 0.22, h * 0.18, h * 0.55);
+  cyan.addColorStop(0, 'rgba(34,223,255,0.18)');
+  cyan.addColorStop(1, 'rgba(34,223,255,0)');
+  ctx.fillStyle = cyan;
+  ctx.fillRect(0, 0, w, h);
+
+  const magenta = ctx.createRadialGradient(w * 0.82, h * 0.76, 0, w * 0.82, h * 0.76, h * 0.5);
+  magenta.addColorStop(0, 'rgba(255,69,176,0.15)');
+  magenta.addColorStop(1, 'rgba(255,69,176,0)');
+  ctx.fillStyle = magenta;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.save();
+  ctx.strokeStyle = 'rgba(124,246,255,0.055)';
+  ctx.lineWidth = 1;
+  const gap = 34;
+  const offset = (time * 0.018) % gap;
+  for (let x = -gap + offset; x < w + gap; x += gap) {
+    ctx.beginPath();
+    ctx.moveTo(x, h * 0.08);
+    ctx.lineTo(x + h * 0.28, h);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+export function drawPanel(ctx, x, y, w, h, accent = 'rgba(124,246,255,0.35)', alpha = 1) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  const grad = ctx.createLinearGradient(x, y, x + w, y + h);
+  grad.addColorStop(0, 'rgba(17,28,61,0.92)');
+  grad.addColorStop(1, 'rgba(7,11,27,0.84)');
+  ctx.fillStyle = grad;
+  roundRect(ctx, x, y, w, h, 12);
+  ctx.fill();
+  ctx.strokeStyle = accent;
+  ctx.shadowColor = '#22dfff';
+  ctx.shadowBlur = 8;
+  ctx.lineWidth = 1;
+  roundRect(ctx, x, y, w, h, 12);
+  ctx.stroke();
+  ctx.restore();
 }
 
 // Draw text with glow effect

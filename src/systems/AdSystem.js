@@ -20,9 +20,15 @@ export class AdSystem {
     if (!this.isWeChat) return;
 
     // Create rewarded video ad instances
-    this.rewardedAds.revive = createRewardedVideoAd(AD_UNIT_IDS.REWARDED_REVIVE);
-    this.rewardedAds.double = createRewardedVideoAd(AD_UNIT_IDS.REWARDED_DOUBLE);
-    this.rewardedAds.chest = createRewardedVideoAd(AD_UNIT_IDS.REWARDED_CHEST);
+    if (isValidAdUnitId(AD_UNIT_IDS.REWARDED_REVIVE)) {
+      this.rewardedAds.revive = createRewardedVideoAd(AD_UNIT_IDS.REWARDED_REVIVE);
+    }
+    if (isValidAdUnitId(AD_UNIT_IDS.REWARDED_DOUBLE)) {
+      this.rewardedAds.double = createRewardedVideoAd(AD_UNIT_IDS.REWARDED_DOUBLE);
+    }
+    if (isValidAdUnitId(AD_UNIT_IDS.REWARDED_CHEST)) {
+      this.rewardedAds.chest = createRewardedVideoAd(AD_UNIT_IDS.REWARDED_CHEST);
+    }
 
     // Preload ads
     this._preloadAll();
@@ -62,6 +68,7 @@ export class AdSystem {
 
   showBanner() {
     if (!this.isWeChat) return;
+    if (!isValidAdUnitId(AD_UNIT_IDS.BANNER)) return;
     if (!this.bannerAd) {
       this.bannerAd = createBannerAd(AD_UNIT_IDS.BANNER);
     }
@@ -87,4 +94,8 @@ export class AdSystem {
     }
     this.bannerVisible = false;
   }
+}
+
+function isValidAdUnitId(id) {
+  return typeof id === 'string' && /^adunit-[A-Za-z0-9_-]{16,}$/.test(id) && !id.includes('xxxx');
 }
