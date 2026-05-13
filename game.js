@@ -105,9 +105,9 @@ function getPieceColor(type) {
 }
 
 function linesNeededForLevel(level) {
-  if (level <= 3) return 10;
-  if (level <= 7) return 12;
-  return 15;
+  if (level <= 3) return 4;
+  if (level <= 7) return 6;
+  return 8;
 }
 
 function linesRequiredToReachLevel(level) {
@@ -697,19 +697,26 @@ function drawHUD(ctx, dpr, boardBounds, state) {
 
   // Fever gauge
   var fy = compact ? boardBounds.y + 80 : ly + 134;
-  var feverH = compact ? 126 : 178;
+  var feverH = compact ? 104 : 178;
   drawPanel(ctx, lx, fy, leftW, feverH, 'rgba(255,111,216,0.45)', 0.72);
-  ctx.fillStyle = '#ffd7fb'; ctx.font = 'bold 15px sans-serif'; ctx.fillText('连击', lx + leftW / 2, fy + 27);
-  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ff6fd8'; ctx.shadowBlur = 15;
-  ctx.font = '900 34px sans-serif';
-  ctx.fillText(state.combo > 1 ? String(state.combo) : '0', lx + leftW / 2, fy + 66);
-  ctx.font = '900 13px sans-serif';
-  ctx.fillText('COMBO', lx + leftW / 2, fy + 91);
-  ctx.shadowBlur = 0;
-  ctx.fillStyle = '#ff8ee2'; ctx.font = 'bold 13px sans-serif'; ctx.fillText('狂热', lx + leftW / 2, fy + (compact ? 96 : 123));
-  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ff6fd8'; ctx.shadowBlur = 8; ctx.font = 'bold 14px sans-serif'; if (!compact) ctx.fillText('FEVER', lx + leftW / 2, fy + 143);
-  ctx.shadowBlur = 0;
-  var bw = leftW - 18, bh = 12, bx = lx + 9, by = fy + (compact ? 108 : 156);
+  if (compact) {
+    ctx.fillStyle = '#ff8ee2'; ctx.font = 'bold 13px sans-serif'; ctx.fillText('FEVER', lx + leftW / 2, fy + 24);
+    ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ff6fd8'; ctx.shadowBlur = 12; ctx.font = '900 24px sans-serif';
+    ctx.fillText(state.combo > 1 ? 'x' + state.combo : '0', lx + leftW / 2, fy + 54);
+    ctx.shadowBlur = 0;
+  } else {
+    ctx.fillStyle = '#ffd7fb'; ctx.font = 'bold 15px sans-serif'; ctx.fillText('连击', lx + leftW / 2, fy + 27);
+    ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ff6fd8'; ctx.shadowBlur = 15;
+    ctx.font = '900 34px sans-serif';
+    ctx.fillText(state.combo > 1 ? String(state.combo) : '0', lx + leftW / 2, fy + 66);
+    ctx.font = '900 13px sans-serif';
+    ctx.fillText('COMBO', lx + leftW / 2, fy + 91);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ff8ee2'; ctx.font = 'bold 13px sans-serif'; ctx.fillText('狂热', lx + leftW / 2, fy + 123);
+    ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ff6fd8'; ctx.shadowBlur = 8; ctx.font = 'bold 14px sans-serif'; ctx.fillText('FEVER', lx + leftW / 2, fy + 143);
+    ctx.shadowBlur = 0;
+  }
+  var bw = leftW - 18, bh = 12, bx = lx + 9, by = fy + (compact ? 74 : 156);
   drawPanel(ctx, bx, by, bw, bh, 'rgba(255,111,216,0.24)', 0.58);
   if (state.feverGauge > 0) {
     var fw = (state.feverGauge / 100) * (bw - 4);
@@ -726,7 +733,7 @@ function drawHUD(ctx, dpr, boardBounds, state) {
   ctx.fillStyle = '#e8f2ff'; ctx.font = 'bold 16px sans-serif'; ctx.fillText('下一个', rightX + rightW / 2, ry + 26);
   ry += 44;
   var pieces = state.nextPieces || [];
-  for (var i = 0; i < Math.min(pieces.length, compact ? 3 : 5); i++) {
+  for (var i = 0; i < Math.min(pieces.length, compact ? 1 : 5); i++) {
     var p = pieces[i], ns = Math.min(56, Math.max(40, rightW - 10));
     var nx = rightX + (rightW - ns) / 2;
     drawMini(p.shape, p.type, nx + 3, ry, ns - 6, ns * 0.62);
@@ -778,11 +785,15 @@ function drawGameTopBar(ctx, w, state) {
 function drawGameChrome(ctx, w, h, state) {
   ctx.save();
   ctx.textBaseline = 'middle';
-  drawPanel(ctx, 12, 16, 42, 42, 'rgba(34,156,255,0.78)', 0.66);
-  ctx.strokeStyle = '#d7e8ff'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.beginPath(); ctx.moveTo(40, 26); ctx.lineTo(27, 37); ctx.lineTo(40, 48); ctx.stroke();
+  drawPanel(ctx, 12, 16, 52, 52, 'rgba(34,156,255,0.78)', 0.72);
+  ctx.fillStyle = '#d7e8ff';
+  ctx.shadowColor = '#22dfff';
+  ctx.shadowBlur = 10;
+  roundRect(ctx, 29, 30, 6, 24, 3); ctx.fill();
+  roundRect(ctx, 42, 30, 6, 24, 3); ctx.fill();
+  ctx.shadowBlur = 0;
 
-  var avatarX = 78, avatarY = 37;
+  var avatarX = 86, avatarY = 42;
   var head = ctx.createRadialGradient(avatarX - 6, avatarY - 8, 2, avatarX, avatarY, 24);
   head.addColorStop(0, '#ffffff'); head.addColorStop(1, '#8ea4c7');
   ctx.fillStyle = head; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
@@ -791,8 +802,8 @@ function drawGameChrome(ctx, w, h, state) {
   ctx.fillStyle = '#22dfff'; ctx.beginPath(); ctx.arc(avatarX - 7, avatarY, 3.5, 0, Math.PI * 2); ctx.arc(avatarX + 7, avatarY, 3.5, 0, Math.PI * 2); ctx.fill();
 
   ctx.textAlign = 'left';
-  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#22dfff'; ctx.shadowBlur = 12; ctx.font = '900 22px sans-serif'; ctx.fillText('方块大作战', 112, 29);
-  ctx.shadowBlur = 0; ctx.fillStyle = '#8ea4ff'; ctx.font = 'bold 13px sans-serif'; ctx.fillText('BLOCK BATTLE', 112, 52);
+  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#22dfff'; ctx.shadowBlur = 12; ctx.font = '900 22px sans-serif'; ctx.fillText('方块大作战', 120, 31);
+  ctx.shadowBlur = 0; ctx.fillStyle = '#8ea4ff'; ctx.font = 'bold 13px sans-serif'; ctx.fillText('BLOCK BATTLE', 120, 54);
 
   drawPanel(ctx, w - 104, 18, 92, 36, 'rgba(255,255,255,0.18)', 0.38);
   ctx.textAlign = 'center'; ctx.fillStyle = '#ffffff'; ctx.font = 'bold 22px sans-serif'; ctx.fillText('•••', w - 74, 36);
@@ -866,8 +877,6 @@ function drawTouchControls(ctx, w, h) {
   ctx.font = '900 38px sans-serif'; ctx.fillText('↓', big / 2, big / 2 - 5);
   ctx.font = 'bold 10px sans-serif'; ctx.fillText('快速下落', big / 2, big / 2 + 24);
   ctx.restore();
-  drawPanel(ctx, 12, h - 48, 36, 36, 'rgba(124,246,255,0.32)', 0.58);
-  ctx.fillStyle = '#d7e8ff'; ctx.fillRect(24, h - 38, 5, 18); ctx.fillRect(34, h - 38, 5, 18);
   ctx.textBaseline = 'alphabetic';
 }
 
@@ -923,6 +932,8 @@ var game = {
   lastStats: null,
   retryBtn: null,
   shareBtn: null,
+  pauseResumeBtn: null,
+  pauseHomeBtn: null,
   clearReason: 'gameover',
   showTutorial: false,
   tutorialBtn: null,
@@ -930,7 +941,6 @@ var game = {
   rotateFxTimer: 0,
   rotateFxDir: 1,
   lastRotateAt: 0,
-  softDropUntil: 0,
   fpsAvg: 60,
   lowPowerMode: false,
   bannerAd: null, rewardedAd: null,
@@ -1016,9 +1026,8 @@ var game = {
       var dx = tc.x - ts.x, dy = tc.y - ts.y;
       if (Math.abs(dx) > TT || Math.abs(dy) > TT) { if (longTimer) { clearTimeout(longTimer); longTimer = null; } }
       if (self.scene === 'game' && !self.showTutorial) {
-        if (Math.abs(dx) > SW && !swiped) { swiped = true; self._move(dx > 0 ? 1 : -1, 0); }
-        if (dy > SW * 1.15 && !swiped) { swiped = true; self._softDropPulse(); }
-        if (dy < -SW * 1.15 && !swiped) { swiped = true; self._hardDrop(); }
+        if (Math.abs(dx) > SW && Math.abs(dx) > Math.abs(dy) * 1.15 && !swiped) { swiped = true; self._move(dx > 0 ? 1 : -1, 0); }
+        if (dy > SW * 1.15 && Math.abs(dy) > Math.abs(dx) * 1.15 && !swiped) { swiped = true; self._hardDrop(); }
       }
     }
 
@@ -1033,13 +1042,13 @@ var game = {
       if (!tc || !ts) return;
       var dx = Math.abs(tc.x - ts.x), dy = Math.abs(tc.y - ts.y), dt = Date.now() - ts.time;
       if (self.scene === 'game') {
-        if (self.paused && dx < TT && dy < TT) {
-          self._togglePause();
+        if (self.paused) {
+          if (dx < TT && dy < TT) self._handlePauseTap(ts.x, ts.y);
           startControl = null;
           return;
         }
         if (self.showTutorial) {
-          self._dismissTutorial();
+          if (dx < TT && dy < TT) self._handleTutorialTap(ts.x, ts.y);
           startControl = null;
           return;
         }
@@ -1055,7 +1064,7 @@ var game = {
           if (self._handleControlTap(ts.x, ts.y)) return;
           var midX = self.screenW / 2;
           self._rotate(ts.x < midX ? -1 : 1);
-        } else if (dy < -SW && !swiped) { self._hold(); }
+        }
       } else if (self.scene === 'menu' || self.scene === 'gameover') {
         if (dx < TT && dy < TT && dt < 300) {
           self._handleSceneTap(ts.x, ts.y);
@@ -1102,6 +1111,8 @@ var game = {
       var x = (e.clientX - rect.left) * self.screenW / rect.width;
       var y = (e.clientY - rect.top) * self.screenH / rect.height;
       if (self.scene === 'game') {
+        if (self.paused) { self._handlePauseTap(x, y); return; }
+        if (self.showTutorial) { self._handleTutorialTap(x, y); return; }
         if (!self._handleControlTap(x, y)) self._rotate(x < self.screenW / 2 ? -1 : 1);
       } else {
         self._handleSceneTap(x, y);
@@ -1131,10 +1142,37 @@ var game = {
         return;
       }
     } else if (this.scene === 'game') {
-      if (this.paused) { this._togglePause(); return; }
-      if (this.showTutorial) { this._dismissTutorial(); return; }
+      if (this.paused) { this._handlePauseTap(x, y); return; }
+      if (this.showTutorial) { this._handleTutorialTap(x, y); return; }
       if (this._handleControlTap(x, y)) return;
     }
+  },
+
+  _handleTutorialTap: function(x, y) {
+    var b = this.tutorialBtn;
+    if (b && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) this._dismissTutorial();
+  },
+
+  _handlePauseTap: function(x, y) {
+    var r = this.pauseResumeBtn, h = this.pauseHomeBtn;
+    if (r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h) {
+      this.paused = false;
+      return;
+    }
+    if (h && x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) {
+      this._returnToMenu();
+    }
+  },
+
+  _returnToMenu: function() {
+    this.paused = false;
+    this.gameOver = false;
+    this.showTutorial = false;
+    this.scene = 'menu';
+    this.piece = null;
+    this.clearingRows = [];
+    this.clearSnapshot = null;
+    if (this.bannerAd) { try { this.bannerAd.hide(); } catch(e) {} this.bannerAd = null; }
   },
 
   _getControlButtons: function() {
@@ -1146,6 +1184,7 @@ var game = {
       { id: 'rotate', x: cx - 22, y: y, w: size, h: size },
       { id: 'drop', x: cx + 58, y: y, w: size, h: size },
       { id: 'drop', x: this.screenW - big - 12, y: this.screenH - big - 34, w: big, h: big },
+      { id: 'pause', x: 12, y: 16, w: 52, h: 52 },
     ];
   },
 
@@ -1165,6 +1204,7 @@ var game = {
     if (b.id === 'right') this._move(1, 0);
     if (b.id === 'rotate') this._rotate90Button();
     if (b.id === 'drop') this._hardDrop();
+    if (b.id === 'pause') this._togglePause();
     return true;
   },
 
@@ -1187,7 +1227,6 @@ var game = {
     this.clearingRows = []; this.clearTimer = 0; this.clearSnapshot = null;
     this.comboText = null; this.comboTextTimer = 0;
     this.shakeX = 0; this.shakeY = 0; this.shakeDur = 0;
-    this.softDropUntil = 0;
     this.clearReason = 'gameover';
     this.showTutorial = getStorageSync('bb_tutorial_seen') !== '1';
     this.lastLockFx = null;
@@ -1247,14 +1286,6 @@ var game = {
         return;
       }
     }
-  },
-
-  _softDropPulse: function() {
-    if (!this.piece || !this._canAct()) return;
-    this.softDropUntil = Date.now() + 520;
-    this._onSoftDrop(true);
-    this._move(0, 1);
-    vibrateShort();
   },
 
   _hardDrop: function() {
@@ -1368,6 +1399,8 @@ var game = {
 
   _completeTest: function() {
     this.clearReason = 'complete';
+    this.piece = null;
+    this.nextPieces = [];
     this._endGame();
   },
 
@@ -1403,10 +1436,6 @@ var game = {
     }
 
     if (this.scene === 'game' && !this.gameOver && !this.paused) {
-      if (this.softDropUntil && Date.now() > this.softDropUntil) {
-        this.softDropUntil = 0;
-        this._onSoftDrop(false);
-      }
       // Clear animation
       if (this.clearingRows.length > 0) {
         this.clearTimer -= dt;
@@ -1536,7 +1565,7 @@ var game = {
 
     // Footer
     ctx.fillStyle = '#8ea4c7'; ctx.font = '15px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('左右滑动移动 · 点击旋转 · 长按暂停', cw / 2, ch - 40);
+    ctx.fillText('点击旋转 · 左右滑移动 · 下滑快速落下', cw / 2, ch - 40);
   },
 
   _renderHowTo: function() {
@@ -1548,7 +1577,7 @@ var game = {
     ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#22dfff'; ctx.shadowBlur = 14; ctx.font = '900 30px sans-serif';
     ctx.fillText('玩法说明', cw / 2, y + 44);
     ctx.shadowBlur = 0;
-    var tips = ['左右滑动：移动方块', '点击：旋转', '下滑：加速下落', '上滑：直接落下', '长按：暂停'];
+    var tips = ['点击：旋转', '左右滑：移动', '下滑：快速落下', '点暂停按钮：暂停'];
     ctx.textAlign = 'left'; ctx.font = 'bold 20px sans-serif'; ctx.fillStyle = '#e8f2ff';
     for (var i = 0; i < tips.length; i++) ctx.fillText(tips[i], x + 34, y + 100 + i * 42);
     var bw = Math.min(240, panelW - 52), bx = cw / 2 - bw / 2, by = y + panelH - 78;
@@ -1659,15 +1688,30 @@ var game = {
     drawTouchControls(ctx, cw, ch);
     if (this.fx) this.fx.drawFront(ctx, cw, ch);
 
-    // Pause
     if (this.paused) {
-      ctx.fillStyle = 'rgba(2,5,16,0.78)'; ctx.fillRect(0, 0, this.screenW, this.screenH);
-      drawPanel(ctx, this.screenW * 0.16, this.screenH / 2 - 78, this.screenW * 0.68, 134, 'rgba(124,246,255,0.38)', 0.95);
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#fff'; ctx.shadowColor = '#22dfff'; ctx.shadowBlur = 16; ctx.font = 'bold 36px sans-serif'; ctx.fillText('暂停', this.screenW / 2, this.screenH / 2 - 28);
-      ctx.shadowBlur = 0; ctx.fillStyle = '#8ea4c7'; ctx.font = '16px sans-serif'; ctx.fillText('点击屏幕继续', this.screenW / 2, this.screenH / 2 + 20);
+      this._renderPauseOverlay();
     }
     if (this.showTutorial) this._renderTutorialOverlay();
+  },
+
+  _renderPauseOverlay: function() {
+    var ctx = this.ctx, cw = this.screenW, ch = this.screenH;
+    ctx.save();
+    ctx.fillStyle = 'rgba(2,5,16,0.78)';
+    ctx.fillRect(0, 0, cw, ch);
+    var w = Math.min(cw * 0.78, 310), h = 230, x = (cw - w) / 2, y = ch / 2 - h / 2;
+    drawPanel(ctx, x, y, w, h, 'rgba(124,246,255,0.48)', 0.96);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#fff'; ctx.shadowColor = '#22dfff'; ctx.shadowBlur = 16; ctx.font = 'bold 34px sans-serif';
+    ctx.fillText('暂停中', cw / 2, y + 48);
+    ctx.shadowBlur = 0;
+    this.pauseResumeBtn = { x: x + 28, y: y + 88, w: w - 56, h: 54 };
+    this.pauseHomeBtn = { x: x + 28, y: y + 154, w: w - 56, h: 52 };
+    drawPanel(ctx, this.pauseResumeBtn.x, this.pauseResumeBtn.y, this.pauseResumeBtn.w, this.pauseResumeBtn.h, 'rgba(124,246,255,0.72)', 0.98);
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 21px sans-serif'; ctx.fillText('继续游戏', cw / 2, this.pauseResumeBtn.y + 28);
+    drawPanel(ctx, this.pauseHomeBtn.x, this.pauseHomeBtn.y, this.pauseHomeBtn.w, this.pauseHomeBtn.h, 'rgba(255,111,216,0.58)', 0.94);
+    ctx.fillStyle = '#ffecfb'; ctx.font = 'bold 20px sans-serif'; ctx.fillText('返回首页', cw / 2, this.pauseHomeBtn.y + 27);
+    ctx.restore();
   },
 
   _renderTutorialOverlay: function() {
@@ -1675,18 +1719,18 @@ var game = {
     ctx.save();
     ctx.fillStyle = 'rgba(2,5,16,0.72)';
     ctx.fillRect(0, 0, cw, ch);
-    var w = Math.min(cw * 0.86, 330), h = 292, x = (cw - w) / 2, y = ch * 0.24;
+    var w = Math.min(cw * 0.86, 330), h = 278, x = (cw - w) / 2, y = ch * 0.24;
     drawPanel(ctx, x, y, w, h, 'rgba(124,246,255,0.62)', 0.98);
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#22dfff'; ctx.shadowBlur = 12; ctx.font = '900 28px sans-serif';
     ctx.fillText('新手提示', cw / 2, y + 42);
     ctx.shadowBlur = 0;
-    var tips = ['左右滑动移动', '点击屏幕旋转', '下滑加速，上滑直接落下', '长按屏幕暂停'];
+    var tips = ['点击：旋转', '左右滑：移动', '下滑：快速落下', '点暂停按钮：暂停'];
     ctx.font = 'bold 19px sans-serif'; ctx.fillStyle = '#e8f2ff';
     for (var i = 0; i < tips.length; i++) ctx.fillText(tips[i], cw / 2, y + 92 + i * 36);
     this.tutorialBtn = { x: cw / 2 - 100, y: y + h - 68, w: 200, h: 50 };
     drawPanel(ctx, this.tutorialBtn.x, this.tutorialBtn.y, this.tutorialBtn.w, this.tutorialBtn.h, 'rgba(255,111,216,0.64)', 0.98);
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 20px sans-serif'; ctx.fillText('开始试玩', cw / 2, this.tutorialBtn.y + 26);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 20px sans-serif'; ctx.fillText('知道了', cw / 2, this.tutorialBtn.y + 26);
     ctx.restore();
   },
 
@@ -1703,7 +1747,7 @@ var game = {
 
     // Title
     ctx.font = 'bold 38px sans-serif'; ctx.fillStyle = this.clearReason === 'complete' ? '#ffe45e' : '#ff5b7d'; ctx.shadowColor = this.clearReason === 'complete' ? '#ffe45e' : '#ff5b7d'; ctx.shadowBlur = 22;
-    ctx.fillText(this.clearReason === 'complete' ? '测试版通关' : '游戏结束', cw / 2, ch * 0.12);
+    ctx.fillText(this.clearReason === 'complete' ? '测试版通关！' : '游戏结束', cw / 2, ch * 0.12);
     ctx.shadowBlur = 0;
 
     if (this.lastStats) {
@@ -1719,9 +1763,9 @@ var game = {
       ctx.fillStyle = '#ffe45e'; ctx.font = 'bold 15px sans-serif'; ctx.fillText('当前最高分 ' + high.toLocaleString(), cw / 2, ch * 0.18 + 104);
       var statY = ch * 0.18 + 146;
       var stats = [
-        ['等级', this.lastStats.level, '#7cf6ff'],
-        ['行数', this.lastStats.lines, '#34f389'],
-        ['连击', 'x' + this.lastStats.maxCombo, '#ff6fd8']
+        ['到达关卡', this.lastStats.level, '#7cf6ff'],
+        ['消除行数', this.lastStats.lines, '#34f389'],
+        ['最高连击', 'x' + this.lastStats.maxCombo, '#ff6fd8']
       ];
       for (var si = 0; si < stats.length; si++) {
         var sx = panelX + panelW * (0.18 + si * 0.32);
