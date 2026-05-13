@@ -14,16 +14,17 @@ var SCORE_T_SPIN_SINGLE = 800, SCORE_T_SPIN_DOUBLE = 1200, SCORE_T_SPIN_TRIPLE =
 var SCORE_COMBO = 50, SCORE_SOFT_DROP = 1, SCORE_HARD_DROP = 2;
 var FEVER_CHARGE_PER_LINE = 20, FEVER_DURATION = 10000, FEVER_COOLDOWN = 5000;
 var FX = {
-  FLASH_MS: 110,
-  TRAIL_MS: 130,
-  POPUP_MS: 980,
-  PARTICLE_LIFE_MIN: 360,
-  PARTICLE_LIFE_MAX: 760,
-  CLEAR_PARTICLES_PER_CELL: 4,
-  FEVER_PARTICLE_MULTIPLIER: 2,
+  FLASH_MS: 180,
+  TRAIL_MS: 520,
+  CLEAR_ANIM_MS: 560,
+  POPUP_MS: 1450,
+  PARTICLE_LIFE_MIN: 620,
+  PARTICLE_LIFE_MAX: 1150,
+  CLEAR_PARTICLES_PER_CELL: 7,
+  FEVER_PARTICLE_MULTIPLIER: 2.4,
   SHAKE_SMALL: 3,
   SHAKE_COMBO_STEP: 1.4,
-  MAX_PARTICLES: 520,
+  MAX_PARTICLES: 760,
 };
 var PIECE_COLORS = {
   I: { fill: '#22dfff', glow: '#7cf6ff' }, O: { fill: '#ffe45e', glow: '#fff2a8' },
@@ -273,7 +274,8 @@ function createFxSystem() {
         var count = Math.floor(FX.CLEAR_PARTICLES_PER_CELL * mult);
         for (var i = 0; i < count; i++) spawnParticle(x, y, Math.random() > 0.35 ? color.glow : '#ffffff', power, i % 2 === 0);
       }
-      shockwaves.push({ x: bounds.x + bounds.w / 2, y: bounds.y + row * bounds.cs + bounds.cs / 2, r: 0, max: bounds.w * 0.72, life: 260, maxLife: 260, color: fever ? '#ff6fd8' : '#7cf6ff' });
+      shockwaves.push({ x: bounds.x + bounds.w / 2, y: bounds.y + row * bounds.cs + bounds.cs / 2, r: 0, max: bounds.w * 0.86, life: 520, maxLife: 520, color: fever ? '#ff6fd8' : '#7cf6ff' });
+      shockwaves.push({ x: bounds.x + bounds.w / 2, y: bounds.y + row * bounds.cs + bounds.cs / 2, r: 0, max: bounds.w * 0.46, life: 360, maxLife: 360, color: '#ffffff' });
     }
   }
   function popup(text, combo, fever, x, y) {
@@ -299,9 +301,17 @@ function createFxSystem() {
   }
   function drawBehind(ctx) {
     for (var i = 0; i < trails.length; i++) {
-      var tr = trails[i], a = Math.max(0, tr.life / tr.maxLife);
-      ctx.save(); ctx.globalAlpha = a * 0.55; ctx.fillStyle = tr.color; ctx.shadowColor = tr.color; ctx.shadowBlur = 18;
-      roundRect(ctx, tr.x + 1, tr.y + 1, tr.size - 2, tr.size - 2, 5); ctx.fill(); ctx.restore();
+      var tr = trails[i], a = Math.max(0, tr.life / tr.maxLife), burn = 1 - a;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = Math.min(0.95, 0.28 + a * 0.7);
+      ctx.fillStyle = tr.color; ctx.shadowColor = tr.color; ctx.shadowBlur = 24 + burn * 16;
+      roundRect(ctx, tr.x + 1, tr.y + 1, tr.size - 2, tr.size - 2, 5); ctx.fill();
+      ctx.globalAlpha = a * 0.72;
+      ctx.fillStyle = '#ffffff';
+      roundRect(ctx, tr.x + 4 + burn * tr.size * 0.22, tr.y + 4, Math.max(3, tr.size * (0.55 - burn * 0.25)), Math.max(3, tr.size * 0.18), 3);
+      ctx.fill();
+      ctx.restore();
     }
   }
   function drawFront(ctx, w, h) {
@@ -862,6 +872,7 @@ var game = {
   gameOver: false, paused: false,
   dropTimer: 0, lockTimer: 0, isLocking: false, lockMoves: 0,
   clearingRows: [], clearTimer: 0,
+  clearSnapshot: null,
   comboText: null, comboTextTimer: 0,
   shakeX: 0, shakeY: 0, shakeDur: 0,
   lastLockFx: null,
@@ -1103,7 +1114,7 @@ var game = {
     this.feverGauge = 0; this.isFever = false; this.feverTimer = 0;
     this.gameOver = false; this.paused = false;
     this.dropTimer = 0; this.lockTimer = 0; this.isLocking = false; this.lockMoves = 0;
-    this.clearingRows = []; this.clearTimer = 0;
+    this.clearingRows = []; this.clearTimer = 0; this.clearSnapshot = null;
     this.comboText = null; this.comboTextTimer = 0;
     this.shakeX = 0; this.shakeY = 0; this.shakeDur = 0;
     this.lastLockFx = null;
@@ -1205,7 +1216,8 @@ var game = {
       var boundsForFx = this.renderer.getBounds();
       if (this.fx) this.fx.lineClear(cleared, boundsForFx, boardSnapshot, this.combo + 1, this.isFever);
       boardClearLines(this.board);
-      this.clearingRows = cleared; this.clearTimer = 300;
+      this.clearSnapshot = boardSnapshot;
+      this.clearingRows = cleared; this.clearTimer = FX.CLEAR_ANIM_MS;
       var n = cleared.length; this.combo++;
       if (this.combo > this.maxCombo) this.maxCombo = this.combo;
       var pts = 0;
@@ -1288,7 +1300,13 @@ var game = {
 
     if (this.scene === 'game' && !this.gameOver && !this.paused) {
       // Clear animation
-      if (this.clearingRows.length > 0) { this.clearTimer -= dt; if (this.clearTimer <= 0) this.clearingRows = []; }
+      if (this.clearingRows.length > 0) {
+        this.clearTimer -= dt;
+        if (this.clearTimer <= 0) {
+          this.clearingRows = [];
+          this.clearSnapshot = null;
+        }
+      }
 
       // Gravity
       if (this.piece && this.clearingRows.length === 0) {
@@ -1421,10 +1439,35 @@ var game = {
       var clearingSet = {};
       for (var i = 0; i < this.clearingRows.length; i++) clearingSet[this.clearingRows[i]] = true;
       var bounds = this.renderer.getBounds();
-      for (var r = 0; r < ROWS; r++) { if (clearingSet[r]) continue; for (var c = 0; c < COLS; c++) if (this.board[r][c]) this.renderer.drawCell(c, r, this.board[r][c], 1); }
-      ctx.fillStyle = this.isFever ? 'rgba(255, 111, 216, 0.58)' : 'rgba(255, 255, 255, 0.62)';
-      for (var i = 0; i < this.clearingRows.length; i++) {
-        ctx.fillRect(bounds.x, bounds.y + this.clearingRows[i] * bounds.cs, bounds.w, bounds.cs);
+      var snapshot = this.clearSnapshot || this.board;
+      var clearProgress = 1 - Math.max(0, this.clearTimer) / FX.CLEAR_ANIM_MS;
+      for (var r = 0; r < ROWS; r++) {
+        if (clearingSet[r]) continue;
+        for (var c = 0; c < COLS; c++) if (snapshot[r][c]) this.renderer.drawCell(c, r, snapshot[r][c], 1);
+      }
+      for (var cr = 0; cr < this.clearingRows.length; cr++) {
+        var row = this.clearingRows[cr];
+        var y = bounds.y + row * bounds.cs;
+        var beamW = bounds.w * Math.min(1, clearProgress * 1.35);
+        var beamX = bounds.x + (bounds.w - beamW) / 2;
+        for (var cc = 0; cc < COLS; cc++) {
+          if (snapshot[row] && snapshot[row][cc]) this.renderer.drawCell(cc, row, snapshot[row][cc], Math.max(0.28, 1 - clearProgress * 0.65));
+        }
+        var g = ctx.createLinearGradient(bounds.x, y, bounds.x + bounds.w, y);
+        g.addColorStop(0, 'rgba(255,255,255,0)');
+        g.addColorStop(0.18, this.isFever ? 'rgba(255,111,216,0.62)' : 'rgba(124,246,255,0.58)');
+        g.addColorStop(0.5, 'rgba(255,255,255,0.92)');
+        g.addColorStop(0.82, this.isFever ? 'rgba(255,111,216,0.62)' : 'rgba(124,246,255,0.58)');
+        g.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.globalAlpha = Math.max(0.18, 1 - clearProgress * 0.18);
+        ctx.fillStyle = g;
+        ctx.shadowColor = this.isFever ? '#ff6fd8' : '#7cf6ff';
+        ctx.shadowBlur = 22;
+        roundRect(ctx, beamX, y + 1, beamW, bounds.cs - 2, 8);
+        ctx.fill();
+        ctx.restore();
       }
     } else {
       this.renderer.drawBoard(this.board);
