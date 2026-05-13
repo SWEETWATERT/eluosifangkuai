@@ -13,6 +13,18 @@ var SCORE_SINGLE = 100, SCORE_DOUBLE = 300, SCORE_TRIPLE = 500, SCORE_TETRIS = 8
 var SCORE_T_SPIN_SINGLE = 800, SCORE_T_SPIN_DOUBLE = 1200, SCORE_T_SPIN_TRIPLE = 1600;
 var SCORE_COMBO = 50, SCORE_SOFT_DROP = 1, SCORE_HARD_DROP = 2;
 var FEVER_CHARGE_PER_LINE = 20, FEVER_DURATION = 10000, FEVER_COOLDOWN = 5000;
+var FX = {
+  FLASH_MS: 110,
+  TRAIL_MS: 130,
+  POPUP_MS: 980,
+  PARTICLE_LIFE_MIN: 360,
+  PARTICLE_LIFE_MAX: 760,
+  CLEAR_PARTICLES_PER_CELL: 4,
+  FEVER_PARTICLE_MULTIPLIER: 2,
+  SHAKE_SMALL: 3,
+  SHAKE_COMBO_STEP: 1.4,
+  MAX_PARTICLES: 520,
+};
 var PIECE_COLORS = {
   I: { fill: '#22dfff', glow: '#7cf6ff' }, O: { fill: '#ffe45e', glow: '#fff2a8' },
   T: { fill: '#b767ff', glow: '#e2b5ff' }, S: { fill: '#34f389', glow: '#a5ffc7' },
@@ -73,6 +85,18 @@ function getWallKicks(type, from, to) {
   return WALL_KICKS[key] || [[0, 0]];
 }
 
+function getRotationKicks(type, from, to) {
+  var kicks = getWallKicks(type, from, to).slice();
+  var fallback = [[0,-1],[-1,-1],[1,-1],[-2,0],[2,0],[-2,-1],[2,-1],[0,1],[-1,1],[1,1],[-2,1],[2,1]];
+  var seen = {};
+  for (var i = 0; i < kicks.length; i++) seen[kicks[i][0] + ',' + kicks[i][1]] = true;
+  for (var j = 0; j < fallback.length; j++) {
+    var key = fallback[j][0] + ',' + fallback[j][1];
+    if (!seen[key]) kicks.push(fallback[j]);
+  }
+  return kicks;
+}
+
 function getPieceColor(type) {
   return PIECE_COLORS[type] || { fill: '#fff', glow: '#fff' };
 }
@@ -96,31 +120,46 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function drawBackdrop(ctx, w, h, time) {
+function drawCutPanel(ctx, x, y, w, h, cut) {
+  cut = Math.min(cut || 14, w * 0.2, h * 0.35);
+  ctx.beginPath();
+  ctx.moveTo(x + cut, y);
+  ctx.lineTo(x + w - cut, y);
+  ctx.lineTo(x + w, y + cut);
+  ctx.lineTo(x + w, y + h - cut);
+  ctx.lineTo(x + w - cut, y + h);
+  ctx.lineTo(x + cut, y + h);
+  ctx.lineTo(x, y + h - cut);
+  ctx.lineTo(x, y + cut);
+  ctx.closePath();
+}
+
+function drawBackdrop(ctx, w, h, time, fever) {
+  var speed = fever ? 0.045 : 0.018;
   var bg = ctx.createLinearGradient(0, 0, w, h);
-  bg.addColorStop(0, '#070a18');
-  bg.addColorStop(0.48, '#101535');
-  bg.addColorStop(1, '#060812');
+  bg.addColorStop(0, fever ? '#190720' : '#070a18');
+  bg.addColorStop(0.48, fever ? '#211044' : '#101535');
+  bg.addColorStop(1, fever ? '#0f0618' : '#060812');
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
 
   var glow = ctx.createRadialGradient(w * 0.22, h * 0.18, 0, w * 0.22, h * 0.18, h * 0.55);
-  glow.addColorStop(0, 'rgba(34,223,255,0.18)');
+  glow.addColorStop(0, fever ? 'rgba(255,91,125,0.24)' : 'rgba(34,223,255,0.18)');
   glow.addColorStop(1, 'rgba(34,223,255,0)');
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, w, h);
 
   var magenta = ctx.createRadialGradient(w * 0.82, h * 0.76, 0, w * 0.82, h * 0.76, h * 0.5);
-  magenta.addColorStop(0, 'rgba(255,69,176,0.15)');
+  magenta.addColorStop(0, fever ? 'rgba(255,171,69,0.22)' : 'rgba(255,69,176,0.15)');
   magenta.addColorStop(1, 'rgba(255,69,176,0)');
   ctx.fillStyle = magenta;
   ctx.fillRect(0, 0, w, h);
 
   ctx.save();
-  ctx.strokeStyle = 'rgba(124,246,255,0.055)';
+  ctx.strokeStyle = fever ? 'rgba(255,111,216,0.09)' : 'rgba(124,246,255,0.055)';
   ctx.lineWidth = 1;
   var gap = 34;
-  var offset = ((time || 0) * 0.018) % gap;
+  var offset = ((time || 0) * speed) % gap;
   for (var x = -gap + offset; x < w + gap; x += gap) {
     ctx.beginPath();
     ctx.moveTo(x, h * 0.08);
@@ -134,6 +173,14 @@ function drawBackdrop(ctx, w, h, time) {
     ctx.stroke();
   }
   ctx.restore();
+
+  var scanY = ((time || 0) * (fever ? 0.18 : 0.08)) % h;
+  var scan = ctx.createLinearGradient(0, scanY - 18, 0, scanY + 18);
+  scan.addColorStop(0, 'rgba(255,255,255,0)');
+  scan.addColorStop(0.5, fever ? 'rgba(255,111,216,0.13)' : 'rgba(124,246,255,0.08)');
+  scan.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = scan;
+  ctx.fillRect(0, scanY - 18, w, 36);
 
   ctx.fillStyle = 'rgba(255,255,255,0.35)';
   for (var i = 0; i < 24; i++) {
@@ -152,19 +199,147 @@ function drawPanel(ctx, x, y, w, h, accent, alpha) {
   grad.addColorStop(0, 'rgba(17,28,61,0.92)');
   grad.addColorStop(1, 'rgba(7,11,27,0.84)');
   ctx.fillStyle = grad;
-  roundRect(ctx, x, y, w, h, 12);
+  drawCutPanel(ctx, x, y, w, h, 12);
   ctx.fill();
   ctx.strokeStyle = accent || 'rgba(124,246,255,0.35)';
   ctx.lineWidth = 1;
   ctx.shadowColor = accent || '#22dfff';
-  ctx.shadowBlur = 8;
-  roundRect(ctx, x, y, w, h, 12);
+  ctx.shadowBlur = 11;
+  drawCutPanel(ctx, x, y, w, h, 12);
   ctx.stroke();
   ctx.shadowBlur = 0;
   ctx.strokeStyle = 'rgba(255,255,255,0.12)';
-  roundRect(ctx, x + 1, y + 1, w - 2, h - 2, 11);
+  drawCutPanel(ctx, x + 1, y + 1, w - 2, h - 2, 10);
   ctx.stroke();
+  ctx.fillStyle = accent || 'rgba(124,246,255,0.35)';
+  ctx.globalAlpha *= 0.8;
+  ctx.fillRect(x + 10, y + 2, Math.min(34, w * 0.22), 2);
+  ctx.fillRect(x + w - Math.min(42, w * 0.25) - 10, y + h - 4, Math.min(42, w * 0.25), 2);
   ctx.restore();
+}
+
+function playImpactSound(power) {
+  try {
+    var AC = (typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext));
+    if (!AC) return;
+    if (!playImpactSound.ctx) playImpactSound.ctx = new AC();
+    var ac = playImpactSound.ctx;
+    var osc = ac.createOscillator();
+    var gain = ac.createGain();
+    osc.type = 'triangle';
+    osc.frequency.value = 180 + power * 45;
+    gain.gain.setValueAtTime(0.0001, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(Math.min(0.16, 0.04 + power * 0.02), ac.currentTime + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.12);
+    osc.connect(gain); gain.connect(ac.destination);
+    osc.start(); osc.stop(ac.currentTime + 0.13);
+  } catch(e) {}
+}
+
+function createFxSystem() {
+  var particles = [];
+  var pool = [];
+  var popups = [];
+  var trails = [];
+  var shockwaves = [];
+  var flash = 0;
+  var feverBanner = 0;
+
+  function obtain() { return pool.pop() || {}; }
+  function recycle(p) { if (pool.length < FX.MAX_PARTICLES) pool.push(p); }
+  function spawnParticle(x, y, color, power, shard) {
+    if (particles.length >= FX.MAX_PARTICLES) recycle(particles.shift());
+    var p = obtain();
+    var a = Math.random() * Math.PI * 2;
+    var s = (1.2 + Math.random() * 3.8) * power;
+    p.x = x; p.y = y; p.vx = Math.cos(a) * s; p.vy = Math.sin(a) * s - Math.random() * 1.2;
+    p.life = FX.PARTICLE_LIFE_MIN + Math.random() * (FX.PARTICLE_LIFE_MAX - FX.PARTICLE_LIFE_MIN);
+    p.maxLife = p.life; p.size = shard ? 3 + Math.random() * 5 : 1.8 + Math.random() * 3.2;
+    p.color = color; p.shard = shard; p.rot = Math.random() * Math.PI; p.spin = (Math.random() - 0.5) * 0.22;
+    particles.push(p);
+  }
+  function lineClear(rows, bounds, boardSnapshot, combo, fever) {
+    var power = 1 + rows.length * 0.25 + Math.min(combo, 5) * 0.12;
+    var mult = fever ? FX.FEVER_PARTICLE_MULTIPLIER : 1;
+    flash = FX.FLASH_MS * (fever ? 1.45 : 1);
+    for (var ri = 0; ri < rows.length; ri++) {
+      var row = rows[ri];
+      for (var c = 0; c < COLS; c++) {
+        var type = boardSnapshot[row] && boardSnapshot[row][c];
+        var color = getPieceColor(type || PIECE_TYPES[c % PIECE_TYPES.length]);
+        var x = bounds.x + c * bounds.cs + bounds.cs / 2;
+        var y = bounds.y + row * bounds.cs + bounds.cs / 2;
+        trails.push({ x: bounds.x + c * bounds.cs, y: bounds.y + row * bounds.cs, size: bounds.cs, color: color.fill, life: FX.TRAIL_MS, maxLife: FX.TRAIL_MS });
+        var count = Math.floor(FX.CLEAR_PARTICLES_PER_CELL * mult);
+        for (var i = 0; i < count; i++) spawnParticle(x, y, Math.random() > 0.35 ? color.glow : '#ffffff', power, i % 2 === 0);
+      }
+      shockwaves.push({ x: bounds.x + bounds.w / 2, y: bounds.y + row * bounds.cs + bounds.cs / 2, r: 0, max: bounds.w * 0.72, life: 260, maxLife: 260, color: fever ? '#ff6fd8' : '#7cf6ff' });
+    }
+  }
+  function popup(text, combo, fever, x, y) {
+    popups.push({ text: text, combo: combo, fever: fever, x: x, y: y, life: FX.POPUP_MS, maxLife: FX.POPUP_MS });
+  }
+  function feverStart(w, h) {
+    feverBanner = 1400;
+    flash = 160;
+    popups.push({ text: 'FEVER TIME!', combo: 0, fever: true, x: w / 2, y: h * 0.38, life: 1400, maxLife: 1400 });
+    for (var i = 0; i < 120; i++) spawnParticle(Math.random() * w, h * (0.2 + Math.random() * 0.6), i % 2 ? '#ff6fd8' : '#ffd39a', 1.8, i % 3 === 0);
+  }
+  function update(dt) {
+    if (flash > 0) flash -= dt;
+    if (feverBanner > 0) feverBanner -= dt;
+    for (var i = particles.length - 1; i >= 0; i--) {
+      var p = particles[i];
+      p.life -= dt; p.x += p.vx; p.y += p.vy; p.vy += 0.035 * dt / 16; p.rot += p.spin * dt / 16;
+      if (p.life <= 0) recycle(particles.splice(i, 1)[0]);
+    }
+    for (var t = trails.length - 1; t >= 0; t--) { trails[t].life -= dt; if (trails[t].life <= 0) trails.splice(t, 1); }
+    for (var s = shockwaves.length - 1; s >= 0; s--) { shockwaves[s].life -= dt; shockwaves[s].r += shockwaves[s].max * dt / shockwaves[s].maxLife; if (shockwaves[s].life <= 0) shockwaves.splice(s, 1); }
+    for (var j = popups.length - 1; j >= 0; j--) { popups[j].life -= dt; popups[j].y -= 0.035 * dt; if (popups[j].life <= 0) popups.splice(j, 1); }
+  }
+  function drawBehind(ctx) {
+    for (var i = 0; i < trails.length; i++) {
+      var tr = trails[i], a = Math.max(0, tr.life / tr.maxLife);
+      ctx.save(); ctx.globalAlpha = a * 0.55; ctx.fillStyle = tr.color; ctx.shadowColor = tr.color; ctx.shadowBlur = 18;
+      roundRect(ctx, tr.x + 1, tr.y + 1, tr.size - 2, tr.size - 2, 5); ctx.fill(); ctx.restore();
+    }
+  }
+  function drawFront(ctx, w, h) {
+    for (var s = 0; s < shockwaves.length; s++) {
+      var sw = shockwaves[s], a = Math.max(0, sw.life / sw.maxLife);
+      ctx.save(); ctx.globalAlpha = a; ctx.strokeStyle = sw.color; ctx.shadowColor = sw.color; ctx.shadowBlur = 18; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(sw.x, sw.y, sw.r, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+    }
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i], a = Math.max(0, p.life / p.maxLife);
+      ctx.save(); ctx.globalAlpha = a; ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+      ctx.fillStyle = p.color; ctx.shadowColor = p.color; ctx.shadowBlur = p.shard ? 12 : 16;
+      if (p.shard) roundRect(ctx, -p.size / 2, -p.size / 2, p.size, p.size, 2);
+      else { ctx.beginPath(); ctx.arc(0, 0, p.size, 0, Math.PI * 2); }
+      ctx.fill(); ctx.restore();
+    }
+    for (var j = 0; j < popups.length; j++) {
+      var po = popups[j], t = 1 - po.life / po.maxLife;
+      var scale = 0.72 + Math.sin(Math.min(1, t * 2) * Math.PI) * 0.42 + (po.fever ? 0.14 : 0);
+      var alpha = Math.min(1, po.life / 220, 1 - Math.max(0, t - 0.72) / 0.28);
+      ctx.save(); ctx.globalAlpha = alpha; ctx.translate(po.x, po.y); ctx.scale(scale, scale);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = '900 38px sans-serif'; ctx.lineWidth = 6; ctx.strokeStyle = po.fever ? '#ff2d8f' : '#12152d'; ctx.strokeText(po.text, 0, 0);
+      ctx.shadowColor = po.fever ? '#ff6fd8' : '#22dfff'; ctx.shadowBlur = 28; ctx.fillStyle = po.fever ? '#fff0fb' : '#ffffff'; ctx.fillText(po.text, 0, 0);
+      if (po.combo > 1) { ctx.font = '900 24px sans-serif'; ctx.fillStyle = '#ffe45e'; ctx.shadowColor = '#ffe45e'; ctx.fillText('x' + po.combo, 0, 38); }
+      ctx.restore();
+    }
+    if (feverBanner > 0) {
+      var pulse = 0.55 + Math.sin(Date.now() * 0.018) * 0.25;
+      ctx.save(); ctx.globalAlpha = Math.min(1, feverBanner / 280) * 0.9; ctx.strokeStyle = 'rgba(255,111,216,' + pulse + ')'; ctx.shadowColor = '#ff6fd8'; ctx.shadowBlur = 30; ctx.lineWidth = 5;
+      roundRect(ctx, 8, 8, w - 16, h - 16, 22); ctx.stroke(); ctx.restore();
+    }
+    if (flash > 0) {
+      var fa = Math.min(0.86, flash / FX.FLASH_MS);
+      ctx.save(); ctx.globalAlpha = fa; ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 40; ctx.fillRect(0, 0, w, h); ctx.restore();
+    }
+  }
+  return { update: update, lineClear: lineClear, popup: popup, feverStart: feverStart, drawBehind: drawBehind, drawFront: drawFront };
 }
 
 // ═══ Board ═══
@@ -200,8 +375,7 @@ function boardLock(grid, piece) {
 }
 
 function boardClearLines(grid) {
-  var full = [];
-  for (var r = 0; r < ROWS; r++) if (grid[r].every(function(c) { return c !== null; })) full.push(r);
+  var full = boardFullLines(grid);
   for (var i = 0; i < full.length; i++) {
     var row = full.sort(function(a,b){return b-a;})[i]; // sort once, then process
   }
@@ -210,6 +384,12 @@ function boardClearLines(grid) {
     grid.splice(full[i], 1);
     grid.unshift(new Array(COLS).fill(null));
   }
+  return full;
+}
+
+function boardFullLines(grid) {
+  var full = [];
+  for (var r = 0; r < ROWS; r++) if (grid[r].every(function(c) { return c !== null; })) full.push(r);
   return full;
 }
 
@@ -301,17 +481,27 @@ function createRenderer(canvas, ctx, dpr) {
 
   function layout() {
     var w = canvas.width / dpr, h = canvas.height / dpr;
-    cellSize = Math.min(Math.floor(w * 0.58 / COLS), Math.floor((h - 250) / ROWS), 28);
+    var bottomSafe = h > 780 ? 118 : 92;
+    cellSize = Math.min(Math.floor(w * 0.58 / COLS), Math.floor((h - 188) / ROWS), 29);
     cellSize = Math.max(16, cellSize);
     boardW = COLS * cellSize; boardH = ROWS * cellSize;
     boardX = Math.floor((w - boardW) / 2);
-    boardY = Math.floor(Math.max(150, Math.min(h * 0.25, h - boardH - 98)));
+    boardY = Math.floor(Math.max(154, Math.min(h * 0.18, h - boardH - bottomSafe)));
   }
 
-  function clear() {
+  function clear(fever, time) {
     var w = canvas.width / dpr, h = canvas.height / dpr;
-    drawBackdrop(ctx, w, h, Date.now());
-    drawPanel(ctx, boardX - 8, boardY - 8, boardW + 16, boardH + 16, 'rgba(124,246,255,0.42)', 0.92);
+    drawBackdrop(ctx, w, h, time || Date.now(), fever);
+    var border = fever ? 'rgba(255,111,216,0.72)' : 'rgba(124,246,255,0.42)';
+    drawPanel(ctx, boardX - 10, boardY - 10, boardW + 20, boardH + 20, border, 0.94);
+    ctx.save();
+    ctx.strokeStyle = fever ? 'rgba(255,111,216,0.9)' : 'rgba(34,223,255,0.95)';
+    ctx.shadowColor = fever ? '#ff6fd8' : '#22dfff';
+    ctx.shadowBlur = fever ? 28 : 22;
+    ctx.lineWidth = 3;
+    roundRect(ctx, boardX - 7, boardY - 7, boardW + 14, boardH + 14, 8);
+    ctx.stroke();
+    ctx.restore();
     for (var r = 0; r < ROWS; r++) {
       for (var c = 0; c < COLS; c++) {
         if ((r + c) % 2 === 0) {
@@ -334,16 +524,30 @@ function createRenderer(canvas, ctx, dpr) {
       ctx.stroke();
       ctx.setLineDash([]);
     } else {
-      ctx.shadowColor = color.glow; ctx.shadowBlur = 10; ctx.fillStyle = color.fill;
+      ctx.shadowColor = color.glow; ctx.shadowBlur = 14; ctx.fillStyle = color.fill;
       roundRect(ctx, gx, gy, gw, gh, 5); ctx.fill();
       ctx.shadowBlur = 0;
       var grad = ctx.createLinearGradient(gx, gy, gx + gw, gy + gh);
-      grad.addColorStop(0, 'rgba(255,255,255,0.46)'); grad.addColorStop(0.35, 'rgba(255,255,255,0.08)'); grad.addColorStop(1, 'rgba(0,0,0,0.30)');
+      grad.addColorStop(0, 'rgba(255,255,255,0.68)'); grad.addColorStop(0.28, 'rgba(255,255,255,0.14)'); grad.addColorStop(0.72, 'rgba(0,0,0,0.10)'); grad.addColorStop(1, 'rgba(0,0,0,0.34)');
       ctx.fillStyle = grad; roundRect(ctx, gx, gy, gw, gh, 5); ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.28)';
-      roundRect(ctx, gx + 4, gy + 4, Math.max(4, gw - 8), Math.max(3, gh * 0.18), 3);
+      ctx.fillStyle = 'rgba(255,255,255,0.42)';
+      roundRect(ctx, gx + 4, gy + 4, Math.max(4, gw - 8), Math.max(3, gh * 0.22), 3);
       ctx.fill();
-      ctx.strokeStyle = 'rgba(255,255,255,0.34)'; ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(gx + 3, gy + 3);
+      ctx.lineTo(gx + gw / 2, gy + gh * 0.42);
+      ctx.lineTo(gx + gw - 3, gy + 3);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(gx + 3, gy + gh - 3);
+      ctx.lineTo(gx + gw / 2, gy + gh * 0.58);
+      ctx.lineTo(gx + gw - 3, gy + gh - 3);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(0,0,0,0.16)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.48)'; ctx.lineWidth = 1;
       roundRect(ctx, gx + 0.5, gy + 0.5, gw - 1, gh - 1, 5); ctx.stroke();
     }
     ctx.restore();
@@ -355,6 +559,13 @@ function createRenderer(canvas, ctx, dpr) {
     ctx.strokeStyle = 'rgba(124,246,255,0.12)'; ctx.lineWidth = 0.5;
     for (var r = 0; r <= ROWS; r++) { var y = boardY + r * cellSize; ctx.beginPath(); ctx.moveTo(boardX, y); ctx.lineTo(boardX + boardW, y); ctx.stroke(); }
     for (var c = 0; c <= COLS; c++) { var x = boardX + c * cellSize; ctx.beginPath(); ctx.moveTo(x, boardY); ctx.lineTo(x, boardY + boardH); ctx.stroke(); }
+    var sweepY = boardY + ((Date.now() * 0.035) % boardH);
+    var sweep = ctx.createLinearGradient(boardX, sweepY - 12, boardX, sweepY + 12);
+    sweep.addColorStop(0, 'rgba(255,255,255,0)');
+    sweep.addColorStop(0.5, 'rgba(124,246,255,0.09)');
+    sweep.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = sweep;
+    ctx.fillRect(boardX, sweepY - 12, boardW, 24);
     for (var r = 0; r < ROWS; r++) for (var c = 0; c < COLS; c++) { if (grid[r][c]) drawCell(c, r, grid[r][c], 1); }
   }
 
@@ -364,12 +575,35 @@ function createRenderer(canvas, ctx, dpr) {
     for (var r = 0; r < size; r++) for (var c = 0; c < size; c++) if (shape[r][c]) drawCell(piece.x + c, piece.y + r, piece.type, alpha);
   }
 
+  function drawPieceTrail(piece, fever) {
+    if (!piece) return;
+    var shape = piece.shape, size = piece.size;
+    var color = getPieceColor(piece.type);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (var r = 0; r < size; r++) for (var c = 0; c < size; c++) if (shape[r][c]) {
+      var bx = piece.x + c, by = piece.y + r;
+      if (by < 0) continue;
+      var x = boardX + bx * cellSize, y = boardY + by * cellSize + cellSize;
+      var len = fever ? cellSize * 6.2 : cellSize * 4.6;
+      var g = ctx.createLinearGradient(x, y, x, y + len);
+      g.addColorStop(0, color.glow);
+      g.addColorStop(0.35, 'rgba(180,70,255,0.22)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.globalAlpha = fever ? 0.34 : 0.22;
+      ctx.fillStyle = g;
+      roundRect(ctx, x + 2, y - 2, cellSize - 4, len, 6);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   function drawGhost(piece, gy) {
     var shape = piece.shape, size = piece.size;
     for (var r = 0; r < size; r++) for (var c = 0; c < size; c++) if (shape[r][c]) drawCell(piece.x + c, gy + r, piece.type, 0.2);
   }
 
-  return { layout: layout, clear: clear, drawBoard: drawBoard, drawPiece: drawPiece, drawGhost: drawGhost, drawCell: drawCell,
+  return { layout: layout, clear: clear, drawBoard: drawBoard, drawPiece: drawPiece, drawPieceTrail: drawPieceTrail, drawGhost: drawGhost, drawCell: drawCell,
     getBounds: function() { return { x: boardX, y: boardY, w: boardW, h: boardH, cs: cellSize }; } };
 }
 
@@ -377,9 +611,9 @@ function createRenderer(canvas, ctx, dpr) {
 function drawHUD(ctx, dpr, boardBounds, state) {
   var cw = ctx.canvas.width / dpr;
   var ch = ctx.canvas.height / dpr;
-  var leftW = Math.max(60, boardBounds.x - 16);
+  var leftW = Math.max(64, boardBounds.x - 18);
   var rightX = boardBounds.x + boardBounds.w + 8;
-  var rightW = Math.max(58, cw - rightX - 10);
+  var rightW = Math.max(64, cw - rightX - 10);
 
   function drawMini(shape, type, x, y, boxW, boxH) {
     var size = shape.length, mc = Math.min(boxW, boxH) / 4;
@@ -387,7 +621,7 @@ function drawHUD(ctx, dpr, boardBounds, state) {
     for (var r = 0; r < size; r++) for (var c = 0; c < size; c++) if (shape[r][c]) {
       var co = getPieceColor(type);
       ctx.save();
-      ctx.fillStyle = co.fill; ctx.shadowColor = co.glow; ctx.shadowBlur = 5;
+      ctx.fillStyle = co.fill; ctx.shadowColor = co.glow; ctx.shadowBlur = 8;
       roundRect(ctx, ox + c * mc + 1, oy + r * mc + 1, mc - 2, mc - 2, 3);
       ctx.fill();
       ctx.shadowBlur = 0;
@@ -398,39 +632,37 @@ function drawHUD(ctx, dpr, boardBounds, state) {
     }
   }
 
-  function drawStat(x, y, w, label, value, color) {
-    ctx.textAlign = 'center';
-    drawPanel(ctx, x, y, w, 50, 'rgba(124,246,255,0.24)', 0.74);
-    ctx.fillStyle = '#8ea4c7'; ctx.font = '11px sans-serif'; ctx.fillText(label, x + w / 2, y + 15);
-    ctx.fillStyle = color || '#fff'; ctx.font = 'bold 19px sans-serif'; ctx.shadowColor = color || '#7cf6ff'; ctx.shadowBlur = 5;
-    var text = typeof value === 'number' ? value.toLocaleString() : String(value);
-    ctx.fillText(text, x + w / 2, y + 38); ctx.shadowBlur = 0;
-  }
-
   // Hold piece on the left, like the concept art.
-  var lx = 8, ly = boardBounds.y + 12;
+  var lx = 8, ly = boardBounds.y + 62;
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#b8c7e8'; ctx.font = 'bold 14px sans-serif'; ctx.fillText('暂存', lx + leftW / 2, ly);
-  var hs = Math.min(74, Math.max(52, leftW));
+  drawPanel(ctx, lx, ly, leftW, 112, 'rgba(124,246,255,0.42)', 0.72);
+  ctx.fillStyle = '#e8f2ff'; ctx.font = 'bold 16px sans-serif'; ctx.fillText('保留', lx + leftW / 2, ly + 24);
+  ctx.strokeStyle = 'rgba(124,246,255,0.24)'; ctx.lineWidth = 1;
+  roundRect(ctx, lx + 7, ly + 36, leftW - 14, 64, 8); ctx.stroke();
+  var hs = Math.min(62, Math.max(48, leftW - 14));
   var holdX = lx + (leftW - hs) / 2;
-  drawPanel(ctx, holdX, ly + 12, hs, hs, state.holdPiece ? 'rgba(124,246,255,0.45)' : 'rgba(255,255,255,0.14)', 0.78);
   if (state.holdPiece) {
-    drawMini(getRotationState(state.holdPiece.type, 0), state.holdPiece.type, holdX + 6, ly + 18, hs - 12, hs - 12);
+    drawMini(getRotationState(state.holdPiece.type, 0), state.holdPiece.type, holdX + 3, ly + 42, hs - 6, hs - 6);
   } else {
     ctx.fillStyle = 'rgba(184,199,232,0.35)';
     ctx.font = 'bold 20px sans-serif';
-    ctx.fillText('?', holdX + hs / 2, ly + 12 + hs / 2 + 7);
+    ctx.fillText('?', holdX + hs / 2, ly + 72);
   }
 
   // Fever gauge
-  var fy = ly + hs + 48;
-  drawPanel(ctx, lx, fy, leftW, 126, 'rgba(255,111,216,0.38)', 0.76);
-  ctx.fillStyle = '#ff8ee2'; ctx.font = 'bold 12px sans-serif'; ctx.fillText(state.combo > 1 ? '连击' : '狂热', lx + leftW / 2, fy + 22);
-  ctx.fillStyle = '#fff'; ctx.shadowColor = '#ff6fd8'; ctx.shadowBlur = 10;
-  ctx.font = state.combo > 1 ? 'bold 24px sans-serif' : 'bold 17px sans-serif';
-  ctx.fillText(state.combo > 1 ? 'x' + state.combo : 'FEVER', lx + leftW / 2, fy + 50);
+  var fy = ly + 134;
+  drawPanel(ctx, lx, fy, leftW, 178, 'rgba(255,111,216,0.45)', 0.72);
+  ctx.fillStyle = '#ffd7fb'; ctx.font = 'bold 15px sans-serif'; ctx.fillText('连击', lx + leftW / 2, fy + 27);
+  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ff6fd8'; ctx.shadowBlur = 15;
+  ctx.font = '900 34px sans-serif';
+  ctx.fillText(state.combo > 1 ? String(state.combo) : '0', lx + leftW / 2, fy + 66);
+  ctx.font = '900 13px sans-serif';
+  ctx.fillText('COMBO', lx + leftW / 2, fy + 91);
   ctx.shadowBlur = 0;
-  var bw = leftW - 16, bh = 12, bx = lx + 8, by = fy + 90;
+  ctx.fillStyle = '#ff8ee2'; ctx.font = 'bold 13px sans-serif'; ctx.fillText('狂热模式', lx + leftW / 2, fy + 123);
+  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ff6fd8'; ctx.shadowBlur = 8; ctx.font = 'bold 14px sans-serif'; ctx.fillText('FEVER', lx + leftW / 2, fy + 143);
+  ctx.shadowBlur = 0;
+  var bw = leftW - 18, bh = 12, bx = lx + 9, by = fy + 156;
   drawPanel(ctx, bx, by, bw, bh, 'rgba(255,111,216,0.24)', 0.58);
   if (state.feverGauge > 0) {
     var fw = (state.feverGauge / 100) * (bw - 4);
@@ -441,35 +673,42 @@ function drawHUD(ctx, dpr, boardBounds, state) {
     roundRect(ctx, bx + 2, by + 2, Math.max(8, fw), bh - 4, 5); ctx.fill(); ctx.shadowBlur = 0;
   }
 
-  // Compact right column.
-  var ry = boardBounds.y + 12;
-  drawStat(rightX, ry, rightW, '等级', state.level, '#7cf6ff');
-  drawStat(rightX, ry + 58, rightW, '行数', state.lines, '#34f389');
-
-  // Next pieces
-  ry += 128;
-  ctx.fillStyle = '#b8c7e8'; ctx.font = 'bold 14px sans-serif'; ctx.fillText('下一个', rightX + rightW / 2, ry); ry += 12;
+  // Next pieces, styled as a tall right-side tower like the concept.
+  var ry = boardBounds.y + 62;
+  drawPanel(ctx, rightX, ry, rightW, Math.min(290, boardBounds.h * 0.55), 'rgba(124,246,255,0.34)', 0.72);
+  ctx.fillStyle = '#e8f2ff'; ctx.font = 'bold 16px sans-serif'; ctx.fillText('下一个', rightX + rightW / 2, ry + 26);
+  ry += 44;
   var pieces = state.nextPieces || [];
-  for (var i = 0; i < Math.min(pieces.length, 3); i++) {
-    var p = pieces[i], ns = Math.min(58, Math.max(42, rightW - 6));
+  for (var i = 0; i < Math.min(pieces.length, 5); i++) {
+    var p = pieces[i], ns = Math.min(56, Math.max(40, rightW - 10));
     var nx = rightX + (rightW - ns) / 2;
-    drawPanel(ctx, nx, ry, ns, ns * 0.76, 'rgba(124,246,255,0.14)', 0.55);
-    drawMini(p.shape, p.type, nx + 4, ry + 2, ns - 8, ns * 0.76 - 4);
-    ry += ns * 0.76 + 8;
+    drawMini(p.shape, p.type, nx + 3, ry, ns - 6, ns * 0.62);
+    ry += ns * 0.66 + 9;
   }
 
-  // Target score card at the upper right, mirroring the concept without adding gameplay dependency.
-  var targetY = 18;
-  drawPanel(ctx, cw - rightW - 10, targetY, rightW, 46, 'rgba(124,246,255,0.24)', 0.62);
-  ctx.fillStyle = '#8ea4c7'; ctx.font = '10px sans-serif'; ctx.fillText('目标', cw - rightW / 2 - 10, targetY + 14);
-  ctx.fillStyle = '#7cf6ff'; ctx.font = 'bold 15px sans-serif'; ctx.fillText('15,000', cw - rightW / 2 - 10, targetY + 34);
+  var linesY = boardBounds.y + boardBounds.h - 86;
+  drawPanel(ctx, rightX, linesY, rightW, 78, 'rgba(124,246,255,0.34)', 0.72);
+  ctx.fillStyle = '#b8c7e8'; ctx.font = 'bold 13px sans-serif'; ctx.fillText('消除行数', rightX + rightW / 2, linesY + 22);
+  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#7cf6ff'; ctx.shadowBlur = 10; ctx.font = 'bold 28px sans-serif'; ctx.fillText(String(state.lines), rightX + rightW / 2, linesY + 52);
+  ctx.shadowBlur = 0; ctx.fillStyle = '#7cf6ff'; ctx.font = 'bold 10px sans-serif'; ctx.fillText('LINES', rightX + rightW / 2, linesY + 68);
 }
 
 function drawGameTopBar(ctx, w, state) {
-  var panelW = Math.min(w * 0.60, 260);
+  var panelW = Math.min(w * 0.58, 258);
   var x = (w - panelW) / 2;
-  var y = 58;
-  drawPanel(ctx, x, y, panelW, 82, 'rgba(124,246,255,0.52)', 0.84);
+  var y = 70;
+  drawPanel(ctx, x, y, panelW, 82, 'rgba(124,246,255,0.58)', 0.84);
+  ctx.save();
+  ctx.strokeStyle = 'rgba(34,223,255,0.95)';
+  ctx.shadowColor = '#22dfff';
+  ctx.shadowBlur = 16;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x + 32, y - 2); ctx.lineTo(x + panelW - 32, y - 2);
+  ctx.moveTo(x + 18, y + 12); ctx.lineTo(x + 2, y + 28);
+  ctx.moveTo(x + panelW - 18, y + 12); ctx.lineTo(x + panelW - 2, y + 28);
+  ctx.stroke();
+  ctx.restore();
   ctx.textAlign = 'center';
   ctx.fillStyle = '#b8c7e8';
   ctx.font = 'bold 15px sans-serif';
@@ -487,29 +726,127 @@ function drawGameTopBar(ctx, w, state) {
   ctx.shadowBlur = 0;
 }
 
+function drawGameChrome(ctx, w, h, state) {
+  ctx.save();
+  ctx.textBaseline = 'middle';
+  drawPanel(ctx, 12, 16, 42, 42, 'rgba(34,156,255,0.78)', 0.66);
+  ctx.strokeStyle = '#d7e8ff'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.beginPath(); ctx.moveTo(40, 26); ctx.lineTo(27, 37); ctx.lineTo(40, 48); ctx.stroke();
+
+  var avatarX = 78, avatarY = 37;
+  var head = ctx.createRadialGradient(avatarX - 6, avatarY - 8, 2, avatarX, avatarY, 24);
+  head.addColorStop(0, '#ffffff'); head.addColorStop(1, '#8ea4c7');
+  ctx.fillStyle = head; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
+  ctx.beginPath(); ctx.arc(avatarX, avatarY, 24, 0, Math.PI * 2); ctx.fill();
+  ctx.shadowBlur = 0; ctx.fillStyle = '#10172d'; roundRect(ctx, avatarX - 15, avatarY - 8, 30, 18, 8); ctx.fill();
+  ctx.fillStyle = '#22dfff'; ctx.beginPath(); ctx.arc(avatarX - 7, avatarY, 3.5, 0, Math.PI * 2); ctx.arc(avatarX + 7, avatarY, 3.5, 0, Math.PI * 2); ctx.fill();
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#22dfff'; ctx.shadowBlur = 12; ctx.font = '900 22px sans-serif'; ctx.fillText('方块大作战', 112, 29);
+  ctx.shadowBlur = 0; ctx.fillStyle = '#8ea4ff'; ctx.font = 'bold 13px sans-serif'; ctx.fillText('BLOCK BATTLE', 112, 52);
+
+  drawPanel(ctx, w - 104, 18, 92, 36, 'rgba(255,255,255,0.18)', 0.38);
+  ctx.textAlign = 'center'; ctx.fillStyle = '#ffffff'; ctx.font = 'bold 22px sans-serif'; ctx.fillText('•••', w - 74, 36);
+  ctx.strokeStyle = 'rgba(255,255,255,0.28)'; ctx.beginPath(); ctx.moveTo(w - 49, 25); ctx.lineTo(w - 49, 47); ctx.stroke();
+  ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(w - 28, 36, 9, 0, Math.PI * 2); ctx.stroke();
+
+  var cardW = 72;
+  drawPanel(ctx, 16, 78, cardW, 70, 'rgba(124,246,255,0.40)', 0.64);
+  ctx.fillStyle = '#b8c7e8'; ctx.font = 'bold 13px sans-serif'; ctx.fillText('等级', 16 + cardW / 2, 100);
+  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#7cf6ff'; ctx.shadowBlur = 12; ctx.font = '900 29px sans-serif'; ctx.fillText(String(state.level), 16 + cardW / 2, 129); ctx.shadowBlur = 0;
+  ctx.fillStyle = '#22dfff'; roundRect(ctx, 28, 138, 48, 5, 2); ctx.fill();
+
+  drawPanel(ctx, w - 88, 78, 72, 70, 'rgba(124,246,255,0.40)', 0.64);
+  ctx.fillStyle = '#b8c7e8'; ctx.font = 'bold 12px sans-serif'; ctx.fillText('目标得分', w - 52, 100);
+  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#7cf6ff'; ctx.shadowBlur = 10; ctx.font = 'bold 19px sans-serif'; ctx.fillText('15,000', w - 52, 125); ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(10,18,45,0.9)'; roundRect(ctx, w - 79, 137, 54, 7, 4); ctx.fill();
+  ctx.fillStyle = '#22dfff'; roundRect(ctx, w - 78, 138, Math.max(8, Math.min(52, state.score / 15000 * 52)), 5, 3); ctx.fill();
+  ctx.restore();
+}
+
 function drawTouchControls(ctx, w, h) {
-  var y = h - 72;
+  var y = h - 74;
   var size = 52;
-  var gap = 10;
+  var gap = 8;
+  var center = w / 2;
   var controls = [
-    { text: '‹', x: w / 2 - size * 2 - gap * 1.5, color: '#7cf6ff' },
-    { text: '›', x: w / 2 - size - gap / 2, color: '#7cf6ff' },
-    { text: '↻', x: w / 2 + gap / 2, color: '#ffffff' },
-    { text: '↓', x: w / 2 + size + gap * 1.5, color: '#ffd39a' },
+    { text: '‹', x: center - 142, color: '#d7e8ff', kind: 'square' },
+    { text: '›', x: center - 82, color: '#d7e8ff', kind: 'square' },
+    { text: '↻', x: center - 22, color: '#ffffff', kind: 'round' },
+    { text: '↓', x: center + 58, color: '#d7e8ff', kind: 'square' },
   ];
   for (var i = 0; i < controls.length; i++) {
     var c = controls[i];
-    drawPanel(ctx, c.x, y, size, size, i === 3 ? 'rgba(255,211,154,0.64)' : 'rgba(124,246,255,0.34)', 0.7);
+    var pulse = 1 + Math.sin(Date.now() * 0.005 + i) * 0.035;
+    ctx.save();
+    ctx.translate(c.x + size / 2, y + size / 2);
+    ctx.scale(pulse, pulse);
+    ctx.translate(-size / 2, -size / 2);
+    if (c.kind === 'round') {
+      ctx.fillStyle = 'rgba(21,68,137,0.78)';
+      ctx.shadowColor = '#22dfff'; ctx.shadowBlur = 20;
+      ctx.beginPath(); ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(124,246,255,0.9)'; ctx.lineWidth = 2; ctx.stroke();
+    } else {
+      drawPanel(ctx, 0, 0, size, size, 'rgba(124,246,255,0.42)', 0.74);
+    }
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = c.color;
     ctx.shadowColor = c.color;
     ctx.shadowBlur = 10;
     ctx.font = 'bold 34px sans-serif';
-    ctx.fillText(c.text, c.x + size / 2, y + size / 2 + 1);
+    ctx.fillText(c.text, size / 2, size / 2 + 1);
     ctx.shadowBlur = 0;
+    ctx.restore();
   }
+  var big = Math.min(74, Math.max(64, w * 0.18));
+  var bx = w - big - 12, by = h - big - 34;
+  var pulse = 1 + Math.sin(Date.now() * 0.005) * 0.045;
+  ctx.save();
+  ctx.translate(bx + big / 2, by + big / 2);
+  ctx.scale(pulse, pulse);
+  ctx.translate(-big / 2, -big / 2);
+  var rg = ctx.createRadialGradient(big * 0.45, big * 0.25, 2, big / 2, big / 2, big * 0.62);
+  rg.addColorStop(0, '#62d9ff'); rg.addColorStop(0.65, '#1a65c8'); rg.addColorStop(1, '#0a1745');
+  ctx.fillStyle = rg; ctx.shadowColor = '#ffd45e'; ctx.shadowBlur = 22;
+  ctx.beginPath(); ctx.arc(big / 2, big / 2, big / 2, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#ffd45e'; ctx.lineWidth = 3; ctx.stroke();
+  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 10; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '900 38px sans-serif'; ctx.fillText('↓', big / 2, big / 2 - 5);
+  ctx.font = 'bold 10px sans-serif'; ctx.fillText('快速下落', big / 2, big / 2 + 24);
+  ctx.restore();
+  drawPanel(ctx, 12, h - 48, 36, 36, 'rgba(124,246,255,0.32)', 0.58);
+  ctx.fillStyle = '#d7e8ff'; ctx.fillRect(24, h - 38, 5, 18); ctx.fillRect(34, h - 38, 5, 18);
   ctx.textBaseline = 'alphabetic';
+}
+
+function drawMenuDemo(ctx, w, h, time) {
+  var bx = w * 0.31, by = h * 0.22, cs = 13;
+  ctx.save();
+  ctx.globalAlpha = 0.34;
+  drawPanel(ctx, bx, by, cs * 10, cs * 12, 'rgba(124,246,255,0.26)', 0.42);
+  ctx.strokeStyle = 'rgba(124,246,255,0.16)';
+  ctx.lineWidth = 0.6;
+  for (var r = 0; r <= 12; r++) { ctx.beginPath(); ctx.moveTo(bx, by + r * cs); ctx.lineTo(bx + cs * 10, by + r * cs); ctx.stroke(); }
+  for (var c = 0; c <= 10; c++) { ctx.beginPath(); ctx.moveTo(bx + c * cs, by); ctx.lineTo(bx + c * cs, by + cs * 12); ctx.stroke(); }
+  var stack = [
+    ['I',0,10],['I',1,10],['S',2,10],['S',3,10],['O',6,10],['O',7,10],['Z',8,10],['Z',9,10],
+    ['J',0,11],['J',1,11],['T',2,11],['T',3,11],['L',4,11],['L',5,11],['O',6,11],['O',7,11],['Z',8,11],['Z',9,11]
+  ];
+  for (var i = 0; i < stack.length; i++) {
+    var s = stack[i], co = getPieceColor(s[0]);
+    ctx.fillStyle = co.fill; ctx.shadowColor = co.glow; ctx.shadowBlur = 6;
+    roundRect(ctx, bx + s[1] * cs + 1, by + s[2] * cs + 1, cs - 2, cs - 2, 3); ctx.fill();
+  }
+  var activeY = by + ((time * 0.035) % (cs * 8));
+  var co2 = getPieceColor('T');
+  ctx.fillStyle = co2.fill; ctx.shadowColor = co2.glow; ctx.shadowBlur = 10;
+  var shape = [[1,1,1],[0,1,0]];
+  for (var rr = 0; rr < shape.length; rr++) for (var cc = 0; cc < shape[rr].length; cc++) if (shape[rr][cc]) {
+    roundRect(ctx, bx + (4 + cc) * cs + 1, activeY + rr * cs + 1, cs - 2, cs - 2, 3); ctx.fill();
+  }
+  ctx.restore();
 }
 
 // ═══ Main Game ═══
@@ -517,6 +854,7 @@ var game = {
   canvas: null, ctx: null, dpr: 2,
   screenW: 375, screenH: 667,
   renderer: null,
+  fx: null,
   board: null, bag: null,
   piece: null, holdPiece: null, canHold: true, nextPieces: [],
   score: 0, level: 1, lines: 0, combo: 0, maxCombo: 0,
@@ -526,6 +864,7 @@ var game = {
   clearingRows: [], clearTimer: 0,
   comboText: null, comboTextTimer: 0,
   shakeX: 0, shakeY: 0, shakeDur: 0,
+  lastLockFx: null,
   lastTime: 0,
   scene: 'menu', // 'menu' | 'game' | 'gameover'
   menuButtons: [],
@@ -533,6 +872,9 @@ var game = {
   lastStats: null,
   retryBtn: null,
   animTime: 0,
+  rotateFxTimer: 0,
+  rotateFxDir: 1,
+  lastRotateAt: 0,
   bannerAd: null, rewardedAd: null,
 
   init: function() {
@@ -555,6 +897,7 @@ var game = {
 
     this.renderer = createRenderer(this.canvas, this.ctx, this.dpr);
     this.renderer.layout();
+    this.fx = createFxSystem();
 
     // Show share menu
     showShareMenu();
@@ -587,7 +930,7 @@ var game = {
 
   _bindInput: function() {
     var self = this;
-    var ts = null, tc = null, active = false, longTimer = null, isLong = false, swiped = false;
+    var ts = null, tc = null, active = false, longTimer = null, isLong = false, swiped = false, startControl = null;
     var SW = 30, LT = 200, TT = 10;
 
     function handleStart(e) {
@@ -595,14 +938,21 @@ var game = {
       var t = e.touches[0];
       ts = { x: t.clientX || t.x || 0, y: t.clientY || t.y || 0, time: Date.now() };
       tc = { x: ts.x, y: ts.y };
+      startControl = self.scene === 'game' ? self._findControlButton(ts.x, ts.y) : null;
       active = true; isLong = false; swiped = false;
-      longTimer = setTimeout(function() { isLong = true; if (self.scene === 'game') self._onSoftDrop(true); }, LT);
+      if (!(startControl && startControl.id === 'rotate')) {
+        longTimer = setTimeout(function() {
+          isLong = true;
+          if (self.scene === 'game') self._onSoftDrop(true);
+        }, LT);
+      }
     }
 
     function handleMove(e) {
       if (!active || !e.touches || e.touches.length === 0) return;
       var t = e.touches[0];
       tc = { x: t.clientX || t.x || 0, y: t.clientY || t.y || 0 };
+      if (startControl && startControl.id === 'rotate') return;
       var dx = tc.x - ts.x, dy = tc.y - ts.y;
       if (Math.abs(dx) > TT || Math.abs(dy) > TT) { if (longTimer) { clearTimeout(longTimer); longTimer = null; } }
       if (self.scene === 'game') {
@@ -614,10 +964,23 @@ var game = {
     function handleEnd(e) {
       if (!active) return; active = false;
       if (longTimer) { clearTimeout(longTimer); longTimer = null; }
-      if (isLong) { isLong = false; if (self.scene === 'game') self._onSoftDrop(false); return; }
+      if (isLong) {
+        isLong = false;
+        if (self.scene === 'game') self._onSoftDrop(false);
+        startControl = null;
+        return;
+      }
       if (!tc || !ts) return;
       var dx = Math.abs(tc.x - ts.x), dy = Math.abs(tc.y - ts.y), dt = Date.now() - ts.time;
       if (self.scene === 'game') {
+        if (startControl) {
+          if (startControl.id === 'rotate') self._rotate90Button();
+          else if (startControl.id === 'left') self._move(-1, 0);
+          else if (startControl.id === 'right') self._move(1, 0);
+          else if (startControl.id === 'drop') self._hardDrop();
+          startControl = null;
+          return;
+        }
         if (dx < TT && dy < TT && dt < 300) {
           if (self._handleControlTap(ts.x, ts.y)) return;
           var midX = self.screenW / 2;
@@ -628,6 +991,7 @@ var game = {
           self._handleSceneTap(ts.x, ts.y);
         }
       }
+      startControl = null;
     }
 
     if (typeof wx !== 'undefined') {
@@ -693,27 +1057,41 @@ var game = {
   },
 
   _getControlButtons: function() {
-    var size = 52, gap = 10, y = this.screenH - 72, cx = this.screenW / 2;
+    var size = 52, y = this.screenH - 74, cx = this.screenW / 2;
+    var big = Math.min(74, Math.max(64, this.screenW * 0.18));
     return [
-      { id: 'left', x: cx - size * 2 - gap * 1.5, y: y, w: size, h: size },
-      { id: 'right', x: cx - size - gap / 2, y: y, w: size, h: size },
-      { id: 'rotate', x: cx + gap / 2, y: y, w: size, h: size },
-      { id: 'drop', x: cx + size + gap * 1.5, y: y, w: size, h: size },
+      { id: 'left', x: cx - 142, y: y, w: size, h: size },
+      { id: 'right', x: cx - 82, y: y, w: size, h: size },
+      { id: 'rotate', x: cx - 22, y: y, w: size, h: size },
+      { id: 'drop', x: cx + 58, y: y, w: size, h: size },
+      { id: 'drop', x: this.screenW - big - 12, y: this.screenH - big - 34, w: big, h: big },
     ];
   },
 
-  _handleControlTap: function(x, y) {
+  _findControlButton: function(x, y) {
     var buttons = this._getControlButtons();
     for (var i = 0; i < buttons.length; i++) {
       var b = buttons[i];
-      if (x < b.x || x > b.x + b.w || y < b.y || y > b.y + b.h) continue;
-      if (b.id === 'left') this._move(-1, 0);
-      if (b.id === 'right') this._move(1, 0);
-      if (b.id === 'rotate') this._rotate(1);
-      if (b.id === 'drop') this._hardDrop();
-      return true;
+      if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h) return b;
     }
-    return false;
+    return null;
+  },
+
+  _handleControlTap: function(x, y) {
+    var b = this._findControlButton(x, y);
+    if (!b) return false;
+    if (b.id === 'left') this._move(-1, 0);
+    if (b.id === 'right') this._move(1, 0);
+    if (b.id === 'rotate') this._rotate90Button();
+    if (b.id === 'drop') this._hardDrop();
+    return true;
+  },
+
+  _rotate90Button: function() {
+    var now = Date.now();
+    if (now - this.lastRotateAt < 120) return;
+    this.lastRotateAt = now;
+    this._rotate(1);
   },
 
   _startGame: function() {
@@ -728,6 +1106,7 @@ var game = {
     this.clearingRows = []; this.clearTimer = 0;
     this.comboText = null; this.comboTextTimer = 0;
     this.shakeX = 0; this.shakeY = 0; this.shakeDur = 0;
+    this.lastLockFx = null;
     this._nextPiece();
     // Show banner ad during gameplay
     var bannerAdUnitId = 'adunit-xxxxxxxxxxxxx4';
@@ -756,14 +1135,13 @@ var game = {
     if (boardCanPlace(this.board, this.piece, this.piece.x + dx, this.piece.y + dy, this.piece.rotation)) {
       this.piece.x += dx; this.piece.y += dy;
       this.lockMoves = 0; this.lockTimer = 0;
-      vibrateShort();
     }
   },
 
   _rotate: function(dir) {
     if (!this.piece || !this._canAct() || this.piece.type === 'O') return;
     var from = this.piece.rotation, to = ((from + dir) % 4 + 4) % 4;
-    var kicks = getWallKicks(this.piece.type, from, to);
+    var kicks = getRotationKicks(this.piece.type, from, to);
     for (var i = 0; i < kicks.length; i++) {
       var dx = kicks[i][0], dy = kicks[i][1];
       var tx = this.piece.x + dx, ty = this.piece.y - dy;
@@ -771,7 +1149,8 @@ var game = {
         this.piece.rotation = to; this.piece.shape = getRotationState(this.piece.type, to);
         this.piece.x = tx; this.piece.y = ty;
         this.lockMoves = 0; this.lockTimer = 0;
-        vibrateShort();
+        this.rotateFxTimer = dir === 2 ? 420 : 260;
+        this.rotateFxDir = dir >= 0 ? 1 : -1;
         return;
       }
     }
@@ -783,8 +1162,9 @@ var game = {
     var dist = gy - this.piece.y;
     this.piece.y = gy;
     this.score += dist * SCORE_HARD_DROP;
+    this.lastLockFx = { type: this.piece.type, x: this.piece.x, y: this.piece.y };
     this._lock();
-    this.shakeX = 3; this.shakeDur = 50;
+    this.shakeX = FX.SHAKE_SMALL; this.shakeDur = 70;
     vibrateLong();
   },
 
@@ -814,11 +1194,17 @@ var game = {
 
   _lock: function() {
     if (!this.piece) return;
+    this.lastLockFx = this.lastLockFx || { type: this.piece.type, x: this.piece.x, y: this.piece.y };
     boardLock(this.board, this.piece);
     this.isLocking = false; this.lockTimer = 0; this.lockMoves = 0; this.canHold = true;
 
-    var cleared = boardClearLines(this.board);
+    var boardSnapshot = [];
+    for (var sr = 0; sr < ROWS; sr++) boardSnapshot[sr] = this.board[sr].slice();
+    var cleared = boardFullLines(this.board);
     if (cleared.length > 0) {
+      var boundsForFx = this.renderer.getBounds();
+      if (this.fx) this.fx.lineClear(cleared, boundsForFx, boardSnapshot, this.combo + 1, this.isFever);
+      boardClearLines(this.board);
       this.clearingRows = cleared; this.clearTimer = 300;
       var n = cleared.length; this.combo++;
       if (this.combo > this.maxCombo) this.maxCombo = this.combo;
@@ -833,17 +1219,47 @@ var game = {
       if (this.lines >= linesForLevel && this.level < MAX_LEVEL) this.level++;
 
       this.feverGauge = Math.min(100, this.feverGauge + n * FEVER_CHARGE_PER_LINE);
-      if (this.feverGauge >= 100 && !this.isFever) { this.isFever = true; this.feverTimer = FEVER_DURATION; this.feverGauge = 100; }
+      if (this.feverGauge >= 100 && !this.isFever) {
+        this.isFever = true; this.feverTimer = FEVER_DURATION; this.feverGauge = 100;
+        if (this.fx) this.fx.feverStart(this.screenW, this.screenH);
+      }
 
-      var txt = ''; switch(n) { case 2: txt = 'DOUBLE'; break; case 3: txt = 'TRIPLE'; break; case 4: txt = 'TETRIS!'; break; }
-      if (txt) { this.comboText = { text: txt, pts: pts }; this.comboTextTimer = 1000; }
-      if (n === 4) { this.shakeX = 6; this.shakeDur = 200; }
+      var txt = this._comboLabel(n, this.combo);
+      this.comboText = { text: txt, pts: pts, combo: this.combo };
+      this.comboTextTimer = 1000;
+      if (this.fx) this.fx.popup(txt, this.combo, this.isFever, this.screenW / 2, this.screenH * 0.44);
+      this.shakeX = FX.SHAKE_SMALL + cleared.length + Math.min(this.combo, 5) * FX.SHAKE_COMBO_STEP;
+      this.shakeDur = 90 + cleared.length * 35 + Math.min(this.combo, 5) * 18;
+      playImpactSound(cleared.length + this.combo + (this.isFever ? 4 : 0));
+      if (n === 4) { this.shakeX += 3; this.shakeDur += 90; }
       vibrateLong();
     } else {
+      if (this.lastLockFx) {
+        var b = this.renderer.getBounds();
+        var co = getPieceColor(this.lastLockFx.type);
+        if (this.fx) {
+          this.fx.popup('', 0, false, -999, -999);
+          for (var lp = 0; lp < 8; lp++) {
+            // Small landing sparkle through the same line-clear particle API would be too heavy.
+          }
+        }
+      }
       this.combo = 0;
     }
+    this.lastLockFx = null;
     this.piece = null;
     if (!this.gameOver) this._nextPiece();
+  },
+
+  _comboLabel: function(lines, combo) {
+    if (lines >= 4) return 'TETRIS';
+    if (combo >= 5) return 'PERFECT';
+    if (combo >= 4) return 'AWESOME';
+    if (combo >= 3) return 'GREAT';
+    if (combo >= 2) return 'NICE';
+    if (lines === 3) return 'GREAT';
+    if (lines === 2) return 'NICE';
+    return 'NICE';
   },
 
   _endGame: function() {
@@ -863,7 +1279,7 @@ var game = {
 
     // Retry button position
     var cw = this.screenW, ch = this.screenH;
-    this.retryBtn = { x: cw / 2 - Math.min(220, cw * 0.62) / 2, y: ch * 0.50, w: Math.min(220, cw * 0.62), h: 52 };
+    this.retryBtn = { x: cw / 2 - Math.min(250, cw * 0.72) / 2, y: ch * 0.58, w: Math.min(250, cw * 0.72), h: 58 };
   },
 
   _loop: function(now) {
@@ -904,7 +1320,9 @@ var game = {
 
       // Combo text
       if (this.comboTextTimer > 0) { this.comboTextTimer -= dt; if (this.comboTextTimer <= 0) this.comboText = null; }
+      if (this.rotateFxTimer > 0) this.rotateFxTimer = Math.max(0, this.rotateFxTimer - dt);
     }
+    if (this.fx) this.fx.update(dt);
 
     this._render(dt);
     requestAnimationFrame(function(t) { game._loop(t); });
@@ -927,7 +1345,8 @@ var game = {
   _renderMenu: function() {
     var ctx = this.ctx, cw = this.screenW, ch = this.screenH;
 
-    drawBackdrop(ctx, cw, ch, this.animTime);
+    drawBackdrop(ctx, cw, ch, this.animTime, false);
+    drawMenuDemo(ctx, cw, ch, this.animTime);
 
     // Floating tetromino accents
     var accents = [
@@ -965,12 +1384,18 @@ var game = {
       ctx.translate(btn.x + btn.w / 2, btn.y + btn.h / 2);
       ctx.scale(pulse, pulse);
       var x = -btn.w / 2, y = -btn.h / 2;
-      ctx.shadowColor = btn.color; ctx.shadowBlur = btn.hot ? 18 : 10;
+      ctx.shadowColor = btn.color; ctx.shadowBlur = btn.hot ? 26 : 12;
       var g = ctx.createLinearGradient(x, y, x + btn.w, y + btn.h);
-      g.addColorStop(0, 'rgba(22,36,78,0.96)');
-      g.addColorStop(1, 'rgba(6,11,30,0.92)');
-      ctx.fillStyle = g; roundRect(ctx, x, y, btn.w, btn.h, 14); ctx.fill();
-      ctx.strokeStyle = btn.color; ctx.lineWidth = btn.hot ? 2 : 1.2; roundRect(ctx, x, y, btn.w, btn.h, 14); ctx.stroke();
+      g.addColorStop(0, btn.hot ? 'rgba(38,77,122,0.98)' : 'rgba(30,40,86,0.96)');
+      g.addColorStop(1, 'rgba(10,12,34,0.94)');
+      ctx.fillStyle = g; drawCutPanel(ctx, x, y, btn.w, btn.h, 14); ctx.fill();
+      var ripple = (this.animTime * 0.16) % btn.w;
+      var rg = ctx.createLinearGradient(x + ripple - 45, y, x + ripple + 45, y);
+      rg.addColorStop(0, 'rgba(255,255,255,0)');
+      rg.addColorStop(0.5, 'rgba(255,255,255,0.24)');
+      rg.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = rg; drawCutPanel(ctx, x, y, btn.w, btn.h, 14); ctx.fill();
+      ctx.strokeStyle = btn.color; ctx.lineWidth = btn.hot ? 2.4 : 1.4; drawCutPanel(ctx, x, y, btn.w, btn.h, 14); ctx.stroke();
       ctx.shadowBlur = 0;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillStyle = btn.hot ? '#ffffff' : btn.color; ctx.font = 'bold ' + (btn.hot ? 21 : 18) + 'px sans-serif'; ctx.fillText(btn.label, 0, 1);
@@ -985,8 +1410,11 @@ var game = {
   _renderGame: function() {
     var ctx = this.ctx, cw = this.screenW, ch = this.screenH;
 
-    this.renderer.clear();
+    this.renderer.clear(this.isFever, this.animTime);
     drawGameTopBar(ctx, cw, { score: this.score });
+    drawGameChrome(ctx, cw, ch, { score: this.score, level: this.level });
+
+    if (this.fx) this.fx.drawBehind(ctx);
 
     // Clearing animation
     if (this.clearingRows.length > 0) {
@@ -994,7 +1422,7 @@ var game = {
       for (var i = 0; i < this.clearingRows.length; i++) clearingSet[this.clearingRows[i]] = true;
       var bounds = this.renderer.getBounds();
       for (var r = 0; r < ROWS; r++) { if (clearingSet[r]) continue; for (var c = 0; c < COLS; c++) if (this.board[r][c]) this.renderer.drawCell(c, r, this.board[r][c], 1); }
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.fillStyle = this.isFever ? 'rgba(255, 111, 216, 0.58)' : 'rgba(255, 255, 255, 0.62)';
       for (var i = 0; i < this.clearingRows.length; i++) {
         ctx.fillRect(bounds.x, bounds.y + this.clearingRows[i] * bounds.cs, bounds.w, bounds.cs);
       }
@@ -1009,7 +1437,31 @@ var game = {
     }
 
     // Active piece
-    if (this.piece && this.clearingRows.length === 0) this.renderer.drawPiece(this.piece);
+    if (this.piece && this.clearingRows.length === 0) {
+      this.renderer.drawPieceTrail(this.piece, this.isFever);
+      this.renderer.drawPiece(this.piece);
+      if (this.rotateFxTimer > 0) {
+        var rb = this.renderer.getBounds();
+        var px = rb.x + (this.piece.x + this.piece.size / 2) * rb.cs;
+        var py = rb.y + (this.piece.y + this.piece.size / 2) * rb.cs;
+        var ra = Math.min(1, this.rotateFxTimer / 260);
+        ctx.save();
+        ctx.globalAlpha = Math.min(0.9, ra);
+        ctx.strokeStyle = '#ffffff';
+        ctx.shadowColor = '#22dfff';
+        ctx.shadowBlur = 18;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(px, py, rb.cs * 1.55, -Math.PI * 0.2, Math.PI * 1.25);
+        ctx.stroke();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '900 16px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(this.rotateFxTimer > 300 ? '180' : '90', px, py - rb.cs * 2.1);
+        ctx.restore();
+      }
+    }
 
     // Combo text
     if (this.comboText && this.comboTextTimer > 0) {
@@ -1030,6 +1482,7 @@ var game = {
       nextPieces: this.nextPieces, holdPiece: this.holdPiece,
     });
     drawTouchControls(ctx, cw, ch);
+    if (this.fx) this.fx.drawFront(ctx, cw, ch);
 
     // Pause
     if (this.paused) {
@@ -1053,20 +1506,24 @@ var game = {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 
     // Title
-    ctx.font = 'bold 40px sans-serif'; ctx.fillStyle = '#ff5b7d'; ctx.shadowColor = '#ff5b7d'; ctx.shadowBlur = 18;
+    ctx.font = 'bold 40px sans-serif'; ctx.fillStyle = '#ff5b7d'; ctx.shadowColor = '#ff5b7d'; ctx.shadowBlur = 22;
     ctx.fillText('游戏结束', cw / 2, ch * 0.12);
     ctx.shadowBlur = 0;
 
     if (this.lastStats) {
       var panelW = Math.min(cw * 0.78, 310);
       var panelX = (cw - panelW) / 2;
-      drawPanel(ctx, panelX, ch * 0.18, panelW, 154, 'rgba(255,111,216,0.38)', 0.96);
+      drawPanel(ctx, panelX, ch * 0.18, panelW, 176, 'rgba(255,111,216,0.48)', 0.96);
       ctx.fillStyle = '#8ea4c7'; ctx.font = '13px sans-serif';
       ctx.fillText('最终得分', cw / 2, ch * 0.18 + 28);
       ctx.fillStyle = '#fff'; ctx.font = 'bold 38px sans-serif'; ctx.shadowColor = '#22dfff'; ctx.shadowBlur = 12;
       ctx.fillText(this.lastStats.score.toLocaleString(), cw / 2, ch * 0.18 + 70);
       ctx.shadowBlur = 0;
-      var statY = ch * 0.18 + 118;
+      var beatRate = Math.min(96, 38 + Math.floor(Math.sqrt(Math.max(0, this.lastStats.score)) * 0.42 + this.lastStats.level * 2));
+      var targetGap = Math.max(0, 15000 - this.lastStats.score);
+      ctx.fillStyle = '#ffe45e'; ctx.font = 'bold 13px sans-serif'; ctx.fillText('你击败了 ' + beatRate + '% 玩家', cw / 2, ch * 0.18 + 98);
+      ctx.fillStyle = '#b8c7e8'; ctx.font = '12px sans-serif'; ctx.fillText(targetGap > 0 ? '距离目标只差 ' + targetGap.toLocaleString() + ' 分' : '已突破今日目标', cw / 2, ch * 0.18 + 120);
+      var statY = ch * 0.18 + 150;
       var stats = [
         ['等级', this.lastStats.level, '#7cf6ff'],
         ['行数', this.lastStats.lines, '#34f389'],
@@ -1079,22 +1536,31 @@ var game = {
       }
     }
 
+    // Revive button
+    var reviveW = Math.min(270, cw * 0.78), reviveX = (cw - reviveW) / 2, reviveY = ch * 0.49;
+    drawPanel(ctx, reviveX, reviveY, reviveW, 50, 'rgba(255,228,94,0.72)', 0.98);
+    ctx.fillStyle = '#fff7bf'; ctx.shadowColor = '#ffe45e'; ctx.shadowBlur = 18; ctx.font = 'bold 18px sans-serif';
+    ctx.fillText('观看视频立即复活', cw / 2, reviveY + 26);
+    ctx.shadowBlur = 0;
+
     // Retry button
     if (this.retryBtn) {
       var b = this.retryBtn;
-      drawPanel(ctx, b.x, b.y, b.w, b.h, 'rgba(124,246,255,0.64)', 0.98);
-      ctx.fillStyle = '#fff'; ctx.shadowColor = '#22dfff'; ctx.shadowBlur = 10; ctx.font = 'bold 20px sans-serif'; ctx.fillText('再来一局', b.x + b.w / 2, b.y + b.h / 2);
+      var pulse = 1 + Math.sin(this.animTime * 0.006) * 0.035;
+      ctx.save(); ctx.translate(b.x + b.w / 2, b.y + b.h / 2); ctx.scale(pulse, pulse); ctx.translate(-b.w / 2, -b.h / 2);
+      drawPanel(ctx, 0, 0, b.w, b.h, 'rgba(124,246,255,0.78)', 0.98);
+      ctx.fillStyle = '#fff'; ctx.shadowColor = '#22dfff'; ctx.shadowBlur = 18; ctx.font = 'bold 22px sans-serif'; ctx.fillText('再来一局', b.w / 2, b.h / 2);
+      ctx.restore();
       ctx.shadowBlur = 0;
     }
 
-    // Share button
-    var sbx = cw / 2 - 70, sby = this.retryBtn ? this.retryBtn.y + 60 : ch * 0.58;
-    drawPanel(ctx, sbx, sby, 140, 40, 'rgba(255,255,255,0.16)', 0.78);
-    ctx.fillStyle = '#8ea4c7'; ctx.font = 'bold 16px sans-serif'; ctx.fillText('分享给好友', cw / 2, sby + 20);
+    // Double reward button
+    var dbx = cw / 2 - 96, dby = this.retryBtn ? this.retryBtn.y + 68 : ch * 0.68;
+    drawPanel(ctx, dbx, dby, 192, 44, 'rgba(255,111,216,0.52)', 0.88);
+    ctx.fillStyle = '#ffb8ed'; ctx.font = 'bold 16px sans-serif'; ctx.fillText('领取双倍积分', cw / 2, dby + 23);
 
-    // Score doubling hint
-    ctx.fillStyle = '#60708f'; ctx.font = '12px sans-serif';
-    ctx.fillText('分享后可看视频双倍积分', cw / 2, ch * 0.75);
+    ctx.fillStyle = '#8ea4c7'; ctx.font = '12px sans-serif';
+    ctx.fillText('再消 1 行即可升级', cw / 2, dby + 62);
 
     // Back to menu
     ctx.fillStyle = '#60708f'; ctx.font = '14px sans-serif';

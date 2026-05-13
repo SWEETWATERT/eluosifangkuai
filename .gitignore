@@ -3,3 +3,7 @@ node_modules/
 *.log
 .DS_Store
 .env.local
+qa-game*.png
+wechat-preview-*.png
+upload-info.json
+preview-info.json
