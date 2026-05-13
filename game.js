@@ -158,6 +158,42 @@ function drawCutPanel(ctx, x, y, w, h, cut) {
   ctx.closePath();
 }
 
+function getCanvasMetrics() {
+  var width = 375, height = 667, pixelRatio = 2;
+  if (typeof wx !== 'undefined' && wx.getSystemInfoSync) {
+    var info = wx.getSystemInfoSync();
+    width = info.windowWidth || info.screenWidth || width;
+    height = info.windowHeight || info.screenHeight || height;
+    pixelRatio = info.pixelRatio || pixelRatio;
+  } else if (typeof window !== 'undefined') {
+    width = window.innerWidth || document.documentElement.clientWidth || width;
+    height = window.innerHeight || document.documentElement.clientHeight || height;
+    pixelRatio = window.devicePixelRatio || pixelRatio;
+  }
+  return {
+    width: Math.max(320, Math.round(width)),
+    height: Math.max(568, Math.round(height)),
+    dpr: Math.max(1, Math.min(3, pixelRatio || 1)),
+  };
+}
+
+function prepareCanvas(canvas, ctx, metrics) {
+  var backingW = Math.round(metrics.width * metrics.dpr);
+  var backingH = Math.round(metrics.height * metrics.dpr);
+  if (canvas.width !== backingW) canvas.width = backingW;
+  if (canvas.height !== backingH) canvas.height = backingH;
+  if (canvas.style) {
+    canvas.style.width = metrics.width + 'px';
+    canvas.style.height = metrics.height + 'px';
+  }
+  if (ctx.setTransform) ctx.setTransform(metrics.dpr, 0, 0, metrics.dpr, 0, 0);
+  else ctx.scale(metrics.dpr, metrics.dpr);
+  ctx.imageSmoothingEnabled = false;
+  ctx.webkitImageSmoothingEnabled = false;
+  ctx.mozImageSmoothingEnabled = false;
+  ctx.msImageSmoothingEnabled = false;
+}
+
 function drawBackdrop(ctx, w, h, time, fever) {
   var speed = fever ? 0.045 : 0.018;
   var bg = ctx.createLinearGradient(0, 0, w, h);
@@ -521,9 +557,11 @@ function showShareMenu() {
 // ═══ Renderer ═══
 function createRenderer(canvas, ctx, dpr) {
   var boardX = 0, boardY = 0, cellSize = CELL_SIZE, boardW = 0, boardH = 0;
+  var compactRender = false;
 
   function layout() {
     var w = canvas.width / dpr, h = canvas.height / dpr;
+    compactRender = w < 390;
     var bottomSafe = h > 780 ? 118 : 92;
     cellSize = Math.min(Math.floor(w * 0.58 / COLS), Math.floor((h - 188) / ROWS), 29);
     cellSize = Math.max(16, cellSize);
@@ -540,7 +578,7 @@ function createRenderer(canvas, ctx, dpr) {
     ctx.save();
     ctx.strokeStyle = fever ? 'rgba(255,111,216,0.9)' : 'rgba(34,223,255,0.95)';
     ctx.shadowColor = fever ? '#ff6fd8' : '#22dfff';
-    ctx.shadowBlur = fever ? 28 : 22;
+    ctx.shadowBlur = compactRender ? (fever ? 14 : 10) : (fever ? 28 : 22);
     ctx.lineWidth = 3;
     roundRect(ctx, boardX - 7, boardY - 7, boardW + 14, boardH + 14, 8);
     ctx.stroke();
@@ -567,7 +605,7 @@ function createRenderer(canvas, ctx, dpr) {
       ctx.stroke();
       ctx.setLineDash([]);
     } else {
-      ctx.shadowColor = color.glow; ctx.shadowBlur = 14; ctx.fillStyle = color.fill;
+      ctx.shadowColor = color.glow; ctx.shadowBlur = compactRender ? 6 : 14; ctx.fillStyle = color.fill;
       roundRect(ctx, gx, gy, gw, gh, 5); ctx.fill();
       ctx.shadowBlur = 0;
       var grad = ctx.createLinearGradient(gx, gy, gx + gw, gy + gh);
@@ -597,7 +635,7 @@ function createRenderer(canvas, ctx, dpr) {
   }
 
   function drawBoard(grid) {
-    ctx.save(); ctx.strokeStyle = '#7cf6ff'; ctx.shadowColor = '#22dfff'; ctx.shadowBlur = 18; ctx.lineWidth = 2;
+    ctx.save(); ctx.strokeStyle = '#7cf6ff'; ctx.shadowColor = '#22dfff'; ctx.shadowBlur = compactRender ? 8 : 18; ctx.lineWidth = 2;
     roundRect(ctx, boardX - 4, boardY - 4, boardW + 8, boardH + 8, 10); ctx.stroke(); ctx.restore();
     ctx.strokeStyle = 'rgba(124,246,255,0.12)'; ctx.lineWidth = 0.5;
     for (var r = 0; r <= ROWS; r++) { var y = boardY + r * cellSize; ctx.beginPath(); ctx.moveTo(boardX, y); ctx.lineTo(boardX + boardW, y); ctx.stroke(); }
@@ -628,12 +666,12 @@ function createRenderer(canvas, ctx, dpr) {
       var bx = piece.x + c, by = piece.y + r;
       if (by < 0) continue;
       var x = boardX + bx * cellSize, y = boardY + by * cellSize + cellSize;
-      var len = fever ? cellSize * 6.2 : cellSize * 4.6;
+      var len = compactRender ? (fever ? cellSize * 4.4 : cellSize * 3.2) : (fever ? cellSize * 6.2 : cellSize * 4.6);
       var g = ctx.createLinearGradient(x, y, x, y + len);
       g.addColorStop(0, color.glow);
       g.addColorStop(0.35, 'rgba(180,70,255,0.22)');
       g.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.globalAlpha = fever ? 0.34 : 0.22;
+      ctx.globalAlpha = compactRender ? (fever ? 0.24 : 0.14) : (fever ? 0.34 : 0.22);
       ctx.fillStyle = g;
       roundRect(ctx, x + 2, y - 2, cellSize - 4, len, 6);
       ctx.fill();
@@ -952,16 +990,11 @@ var game = {
     if (!this.canvas) { console.error('No canvas'); return; }
     this.ctx = this.canvas.getContext('2d');
 
-    // Get system info for screen size
-    if (typeof wx !== 'undefined' && wx.getSystemInfoSync) {
-      var info = wx.getSystemInfoSync();
-      this.screenW = info.screenWidth || info.windowWidth || 375;
-      this.screenH = info.screenHeight || info.windowHeight || 667;
-      this.dpr = info.pixelRatio || 2;
-    }
-    this.canvas.width = this.screenW * this.dpr;
-    this.canvas.height = this.screenH * this.dpr;
-    this.ctx.scale(this.dpr, this.dpr);
+    var metrics = getCanvasMetrics();
+    this.screenW = metrics.width;
+    this.screenH = metrics.height;
+    this.dpr = metrics.dpr;
+    prepareCanvas(this.canvas, this.ctx, metrics);
 
     this.renderer = createRenderer(this.canvas, this.ctx, this.dpr);
     this.renderer.layout();
