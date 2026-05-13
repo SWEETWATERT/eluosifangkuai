@@ -1,0 +1,21 @@
+{
+  "compileType": "game",
+  "setting": {
+    "urlCheck": true,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true,
+    "autoAudits": false,
+    "checkInvalidKey": true,
+    "uploadWithSourceMap": true,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
+  },
+  "appid": "wxbc48ae6bb824e77a",
+  "projectname": "tetris-block-battle",
+  "condition": {}
+}
