@@ -31,6 +31,22 @@
         "value": "qa-game-rotation-layout.png"
       },
       {
+        "type": "file",
+        "value": "qa-clear-fx.png"
+      },
+      {
+        "type": "file",
+        "value": "upload-info.json"
+      },
+      {
+        "type": "file",
+        "value": "preview-info.json"
+      },
+      {
+        "type": "file",
+        "value": "wechat-preview-1.1.3.png"
+      },
+      {
         "type": "folder",
         "value": ".git"
       }

@@ -8,7 +8,8 @@ var COLS = 10, ROWS = 20, CELL_SIZE = 28;
 var SPAWN_X = 3, SPAWN_Y = -1;
 var BASE_DROP_INTERVAL = 800, LEVEL_SPEED_DECREASE = 50, MIN_DROP_INTERVAL = 50;
 var LOCK_DELAY = 500, LOCK_DELAY_MAX_MOVES = 15;
-var LINES_PER_LEVEL_EARLY = 10, LINES_PER_LEVEL_LATE = 15, MAX_LEVEL = 30;
+var TEST_MAX_LEVEL = 10;
+var MAX_LEVEL = TEST_MAX_LEVEL;
 var SCORE_SINGLE = 100, SCORE_DOUBLE = 300, SCORE_TRIPLE = 500, SCORE_TETRIS = 800;
 var SCORE_T_SPIN_SINGLE = 800, SCORE_T_SPIN_DOUBLE = 1200, SCORE_T_SPIN_TRIPLE = 1600;
 var SCORE_COMBO = 50, SCORE_SOFT_DROP = 1, SCORE_HARD_DROP = 2;
@@ -20,11 +21,12 @@ var FX = {
   POPUP_MS: 1450,
   PARTICLE_LIFE_MIN: 620,
   PARTICLE_LIFE_MAX: 1150,
-  CLEAR_PARTICLES_PER_CELL: 7,
-  FEVER_PARTICLE_MULTIPLIER: 2.4,
+  CLEAR_PARTICLES_PER_CELL: 5,
+  FEVER_PARTICLE_MULTIPLIER: 1.8,
   SHAKE_SMALL: 3,
   SHAKE_COMBO_STEP: 1.4,
-  MAX_PARTICLES: 760,
+  MAX_PARTICLES: 520,
+  LOW_MAX_PARTICLES: 300,
 };
 var PIECE_COLORS = {
   I: { fill: '#22dfff', glow: '#7cf6ff' }, O: { fill: '#ffe45e', glow: '#fff2a8' },
@@ -100,6 +102,27 @@ function getRotationKicks(type, from, to) {
 
 function getPieceColor(type) {
   return PIECE_COLORS[type] || { fill: '#fff', glow: '#fff' };
+}
+
+function linesNeededForLevel(level) {
+  if (level <= 3) return 10;
+  if (level <= 7) return 12;
+  return 15;
+}
+
+function linesRequiredToReachLevel(level) {
+  var total = 0;
+  for (var l = 1; l < level; l++) total += linesNeededForLevel(l);
+  return total;
+}
+
+function nextLevelLineTarget(level) {
+  if (level >= TEST_MAX_LEVEL) return linesRequiredToReachLevel(TEST_MAX_LEVEL) + linesNeededForLevel(TEST_MAX_LEVEL);
+  return linesRequiredToReachLevel(level + 1);
+}
+
+function testCompleteLineTarget() {
+  return linesRequiredToReachLevel(TEST_MAX_LEVEL) + linesNeededForLevel(TEST_MAX_LEVEL);
 }
 
 function isValidAdUnitId(id) {
@@ -245,11 +268,13 @@ function createFxSystem() {
   var shockwaves = [];
   var flash = 0;
   var feverBanner = 0;
+  var lowPower = false;
 
   function obtain() { return pool.pop() || {}; }
   function recycle(p) { if (pool.length < FX.MAX_PARTICLES) pool.push(p); }
   function spawnParticle(x, y, color, power, shard) {
-    if (particles.length >= FX.MAX_PARTICLES) recycle(particles.shift());
+    var cap = lowPower ? FX.LOW_MAX_PARTICLES : FX.MAX_PARTICLES;
+    if (particles.length >= cap) recycle(particles.shift());
     var p = obtain();
     var a = Math.random() * Math.PI * 2;
     var s = (1.2 + Math.random() * 3.8) * power;
@@ -261,7 +286,7 @@ function createFxSystem() {
   }
   function lineClear(rows, bounds, boardSnapshot, combo, fever) {
     var power = 1 + rows.length * 0.25 + Math.min(combo, 5) * 0.12;
-    var mult = fever ? FX.FEVER_PARTICLE_MULTIPLIER : 1;
+    var mult = (fever ? FX.FEVER_PARTICLE_MULTIPLIER : 1) * (lowPower ? 0.55 : 1);
     flash = FX.FLASH_MS * (fever ? 1.45 : 1);
     for (var ri = 0; ri < rows.length; ri++) {
       var row = rows[ri];
@@ -285,7 +310,7 @@ function createFxSystem() {
     feverBanner = 1400;
     flash = 160;
     popups.push({ text: 'FEVER TIME!', combo: 0, fever: true, x: w / 2, y: h * 0.38, life: 1400, maxLife: 1400 });
-    for (var i = 0; i < 120; i++) spawnParticle(Math.random() * w, h * (0.2 + Math.random() * 0.6), i % 2 ? '#ff6fd8' : '#ffd39a', 1.8, i % 3 === 0);
+    for (var i = 0; i < (lowPower ? 48 : 90); i++) spawnParticle(Math.random() * w, h * (0.2 + Math.random() * 0.6), i % 2 ? '#ff6fd8' : '#ffd39a', 1.8, i % 3 === 0);
   }
   function update(dt) {
     if (flash > 0) flash -= dt;
@@ -349,7 +374,16 @@ function createFxSystem() {
       ctx.save(); ctx.globalAlpha = fa; ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 40; ctx.fillRect(0, 0, w, h); ctx.restore();
     }
   }
-  return { update: update, lineClear: lineClear, popup: popup, feverStart: feverStart, drawBehind: drawBehind, drawFront: drawFront };
+  return {
+    update: update,
+    lineClear: lineClear,
+    popup: popup,
+    feverStart: feverStart,
+    drawBehind: drawBehind,
+    drawFront: drawFront,
+    setLowPower: function(v) { lowPower = !!v; },
+    isLowPower: function() { return lowPower; }
+  };
 }
 
 // ═══ Board ═══
@@ -386,9 +420,6 @@ function boardLock(grid, piece) {
 
 function boardClearLines(grid) {
   var full = boardFullLines(grid);
-  for (var i = 0; i < full.length; i++) {
-    var row = full.sort(function(a,b){return b-a;})[i]; // sort once, then process
-  }
   full.sort(function(a,b){return b-a;});
   for (var i = 0; i < full.length; i++) {
     grid.splice(full[i], 1);
@@ -469,10 +500,12 @@ function vibrateShort() { if (typeof wx !== 'undefined' && wx.vibrateShort) wx.v
 function vibrateLong() { if (typeof wx !== 'undefined' && wx.vibrateLong) wx.vibrateLong(); }
 function getStorageSync(key) {
   if (typeof wx !== 'undefined') { try { return wx.getStorageSync(key) || null; } catch(e) { return null; } }
+  if (typeof localStorage !== 'undefined') { try { return localStorage.getItem(key); } catch(e) { return null; } }
   return null;
 }
 function setStorageSync(key, val) {
   if (typeof wx !== 'undefined') { try { wx.setStorageSync(key, val); } catch(e) {} }
+  else if (typeof localStorage !== 'undefined') { try { localStorage.setItem(key, val); } catch(e) {} }
 }
 function shareAppMessage(title) {
   if (typeof wx !== 'undefined' && wx.shareAppMessage) {
@@ -624,6 +657,7 @@ function drawHUD(ctx, dpr, boardBounds, state) {
   var leftW = Math.max(64, boardBounds.x - 18);
   var rightX = boardBounds.x + boardBounds.w + 8;
   var rightW = Math.max(64, cw - rightX - 10);
+  var compact = cw < 390;
 
   function drawMini(shape, type, x, y, boxW, boxH) {
     var size = shape.length, mc = Math.min(boxW, boxH) / 4;
@@ -645,23 +679,26 @@ function drawHUD(ctx, dpr, boardBounds, state) {
   // Hold piece on the left, like the concept art.
   var lx = 8, ly = boardBounds.y + 62;
   ctx.textAlign = 'center';
-  drawPanel(ctx, lx, ly, leftW, 112, 'rgba(124,246,255,0.42)', 0.72);
-  ctx.fillStyle = '#e8f2ff'; ctx.font = 'bold 16px sans-serif'; ctx.fillText('保留', lx + leftW / 2, ly + 24);
-  ctx.strokeStyle = 'rgba(124,246,255,0.24)'; ctx.lineWidth = 1;
-  roundRect(ctx, lx + 7, ly + 36, leftW - 14, 64, 8); ctx.stroke();
-  var hs = Math.min(62, Math.max(48, leftW - 14));
-  var holdX = lx + (leftW - hs) / 2;
-  if (state.holdPiece) {
-    drawMini(getRotationState(state.holdPiece.type, 0), state.holdPiece.type, holdX + 3, ly + 42, hs - 6, hs - 6);
-  } else {
-    ctx.fillStyle = 'rgba(184,199,232,0.35)';
-    ctx.font = 'bold 20px sans-serif';
-    ctx.fillText('?', holdX + hs / 2, ly + 72);
+  if (!compact) {
+    drawPanel(ctx, lx, ly, leftW, 112, 'rgba(124,246,255,0.42)', 0.72);
+    ctx.fillStyle = '#e8f2ff'; ctx.font = 'bold 16px sans-serif'; ctx.fillText('保留', lx + leftW / 2, ly + 24);
+    ctx.strokeStyle = 'rgba(124,246,255,0.24)'; ctx.lineWidth = 1;
+    roundRect(ctx, lx + 7, ly + 36, leftW - 14, 64, 8); ctx.stroke();
+    var hs = Math.min(62, Math.max(48, leftW - 14));
+    var holdX = lx + (leftW - hs) / 2;
+    if (state.holdPiece) {
+      drawMini(getRotationState(state.holdPiece.type, 0), state.holdPiece.type, holdX + 3, ly + 42, hs - 6, hs - 6);
+    } else {
+      ctx.fillStyle = 'rgba(184,199,232,0.35)';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillText('?', holdX + hs / 2, ly + 72);
+    }
   }
 
   // Fever gauge
-  var fy = ly + 134;
-  drawPanel(ctx, lx, fy, leftW, 178, 'rgba(255,111,216,0.45)', 0.72);
+  var fy = compact ? boardBounds.y + 80 : ly + 134;
+  var feverH = compact ? 126 : 178;
+  drawPanel(ctx, lx, fy, leftW, feverH, 'rgba(255,111,216,0.45)', 0.72);
   ctx.fillStyle = '#ffd7fb'; ctx.font = 'bold 15px sans-serif'; ctx.fillText('连击', lx + leftW / 2, fy + 27);
   ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ff6fd8'; ctx.shadowBlur = 15;
   ctx.font = '900 34px sans-serif';
@@ -669,10 +706,10 @@ function drawHUD(ctx, dpr, boardBounds, state) {
   ctx.font = '900 13px sans-serif';
   ctx.fillText('COMBO', lx + leftW / 2, fy + 91);
   ctx.shadowBlur = 0;
-  ctx.fillStyle = '#ff8ee2'; ctx.font = 'bold 13px sans-serif'; ctx.fillText('狂热模式', lx + leftW / 2, fy + 123);
-  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ff6fd8'; ctx.shadowBlur = 8; ctx.font = 'bold 14px sans-serif'; ctx.fillText('FEVER', lx + leftW / 2, fy + 143);
+  ctx.fillStyle = '#ff8ee2'; ctx.font = 'bold 13px sans-serif'; ctx.fillText('狂热', lx + leftW / 2, fy + (compact ? 96 : 123));
+  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#ff6fd8'; ctx.shadowBlur = 8; ctx.font = 'bold 14px sans-serif'; if (!compact) ctx.fillText('FEVER', lx + leftW / 2, fy + 143);
   ctx.shadowBlur = 0;
-  var bw = leftW - 18, bh = 12, bx = lx + 9, by = fy + 156;
+  var bw = leftW - 18, bh = 12, bx = lx + 9, by = fy + (compact ? 108 : 156);
   drawPanel(ctx, bx, by, bw, bh, 'rgba(255,111,216,0.24)', 0.58);
   if (state.feverGauge > 0) {
     var fw = (state.feverGauge / 100) * (bw - 4);
@@ -685,22 +722,24 @@ function drawHUD(ctx, dpr, boardBounds, state) {
 
   // Next pieces, styled as a tall right-side tower like the concept.
   var ry = boardBounds.y + 62;
-  drawPanel(ctx, rightX, ry, rightW, Math.min(290, boardBounds.h * 0.55), 'rgba(124,246,255,0.34)', 0.72);
+  drawPanel(ctx, rightX, ry, rightW, compact ? 160 : Math.min(290, boardBounds.h * 0.55), 'rgba(124,246,255,0.34)', 0.72);
   ctx.fillStyle = '#e8f2ff'; ctx.font = 'bold 16px sans-serif'; ctx.fillText('下一个', rightX + rightW / 2, ry + 26);
   ry += 44;
   var pieces = state.nextPieces || [];
-  for (var i = 0; i < Math.min(pieces.length, 5); i++) {
+  for (var i = 0; i < Math.min(pieces.length, compact ? 3 : 5); i++) {
     var p = pieces[i], ns = Math.min(56, Math.max(40, rightW - 10));
     var nx = rightX + (rightW - ns) / 2;
     drawMini(p.shape, p.type, nx + 3, ry, ns - 6, ns * 0.62);
     ry += ns * 0.66 + 9;
   }
 
-  var linesY = boardBounds.y + boardBounds.h - 86;
-  drawPanel(ctx, rightX, linesY, rightW, 78, 'rgba(124,246,255,0.34)', 0.72);
-  ctx.fillStyle = '#b8c7e8'; ctx.font = 'bold 13px sans-serif'; ctx.fillText('消除行数', rightX + rightW / 2, linesY + 22);
-  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#7cf6ff'; ctx.shadowBlur = 10; ctx.font = 'bold 28px sans-serif'; ctx.fillText(String(state.lines), rightX + rightW / 2, linesY + 52);
-  ctx.shadowBlur = 0; ctx.fillStyle = '#7cf6ff'; ctx.font = 'bold 10px sans-serif'; ctx.fillText('LINES', rightX + rightW / 2, linesY + 68);
+  if (!compact) {
+    var linesY = boardBounds.y + boardBounds.h - 86;
+    drawPanel(ctx, rightX, linesY, rightW, 78, 'rgba(124,246,255,0.34)', 0.72);
+    ctx.fillStyle = '#b8c7e8'; ctx.font = 'bold 13px sans-serif'; ctx.fillText('消除行数', rightX + rightW / 2, linesY + 22);
+    ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#7cf6ff'; ctx.shadowBlur = 10; ctx.font = 'bold 28px sans-serif'; ctx.fillText(String(state.lines), rightX + rightW / 2, linesY + 52);
+    ctx.shadowBlur = 0; ctx.fillStyle = '#7cf6ff'; ctx.font = 'bold 10px sans-serif'; ctx.fillText('LINES', rightX + rightW / 2, linesY + 68);
+  }
 }
 
 function drawGameTopBar(ctx, w, state) {
@@ -732,7 +771,7 @@ function drawGameTopBar(ctx, w, state) {
   ctx.shadowColor = '#ffe45e';
   ctx.shadowBlur = 8;
   ctx.font = 'bold 12px sans-serif';
-  ctx.fillText('最高 ' + Math.max(state.score, 88888).toLocaleString(), w / 2, y + 76);
+  ctx.fillText('最高 ' + Math.max(state.score, state.highScore || 0).toLocaleString(), w / 2, y + 76);
   ctx.shadowBlur = 0;
 }
 
@@ -767,10 +806,11 @@ function drawGameChrome(ctx, w, h, state) {
   ctx.fillStyle = '#22dfff'; roundRect(ctx, 28, 138, 48, 5, 2); ctx.fill();
 
   drawPanel(ctx, w - 88, 78, 72, 70, 'rgba(124,246,255,0.40)', 0.64);
-  ctx.fillStyle = '#b8c7e8'; ctx.font = 'bold 12px sans-serif'; ctx.fillText('目标得分', w - 52, 100);
-  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#7cf6ff'; ctx.shadowBlur = 10; ctx.font = 'bold 19px sans-serif'; ctx.fillText('15,000', w - 52, 125); ctx.shadowBlur = 0;
+  ctx.fillStyle = '#b8c7e8'; ctx.font = 'bold 12px sans-serif'; ctx.fillText('目标行数', w - 52, 100);
   ctx.fillStyle = 'rgba(10,18,45,0.9)'; roundRect(ctx, w - 79, 137, 54, 7, 4); ctx.fill();
-  ctx.fillStyle = '#22dfff'; roundRect(ctx, w - 78, 138, Math.max(8, Math.min(52, state.score / 15000 * 52)), 5, 3); ctx.fill();
+  var target = Math.max(1, state.nextTarget || 10);
+  ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#7cf6ff'; ctx.shadowBlur = 10; ctx.font = 'bold 19px sans-serif'; ctx.fillText(String(Math.min(state.lines || 0, target)) + '/' + target, w - 52, 125); ctx.shadowBlur = 0;
+  ctx.fillStyle = '#22dfff'; roundRect(ctx, w - 78, 138, Math.max(8, Math.min(52, (state.lines || 0) / target * 52)), 5, 3); ctx.fill();
   ctx.restore();
 }
 
@@ -877,15 +917,22 @@ var game = {
   shakeX: 0, shakeY: 0, shakeDur: 0,
   lastLockFx: null,
   lastTime: 0,
-  scene: 'menu', // 'menu' | 'game' | 'gameover'
+  scene: 'menu', // 'menu' | 'howto' | 'game' | 'gameover'
   menuButtons: [],
   gameoverButtons: [],
   lastStats: null,
   retryBtn: null,
+  shareBtn: null,
+  clearReason: 'gameover',
+  showTutorial: false,
+  tutorialBtn: null,
   animTime: 0,
   rotateFxTimer: 0,
   rotateFxDir: 1,
   lastRotateAt: 0,
+  softDropUntil: 0,
+  fpsAvg: 60,
+  lowPowerMode: false,
   bannerAd: null, rewardedAd: null,
 
   init: function() {
@@ -931,18 +978,17 @@ var game = {
 
   _buildMenuButtons: function() {
     var cw = this.screenW, ch = this.screenH;
-    var btnW = Math.min(cw * 0.72, 280), btnH = 56, cx = cw / 2;
+    var btnW = Math.min(cw * 0.76, 290), btnH = 58, cx = cw / 2;
     this.menuButtons = [
-      { id: 'play', label: '开始游戏', x: cx - btnW / 2, y: ch * 0.48, w: btnW, h: btnH, color: '#22dfff', hot: true },
-      { id: 'daily', label: '每日挑战', x: cx - btnW / 2, y: ch * 0.48 + btnH + 14, w: btnW, h: btnH * 0.86, color: '#ff6fd8' },
-      { id: 'leaderboard', label: '排行榜', x: cx - btnW * 0.78 / 2, y: ch * 0.48 + btnH * 2 + 22, w: btnW * 0.78, h: btnH * 0.76, color: '#34f389' },
+      { id: 'play', label: '开始游戏', x: cx - btnW / 2, y: ch * 0.52, w: btnW, h: btnH, color: '#22dfff', hot: true },
+      { id: 'howto', label: '玩法说明', x: cx - btnW / 2, y: ch * 0.52 + btnH + 16, w: btnW, h: 52, color: '#ff6fd8' },
     ];
   },
 
   _bindInput: function() {
     var self = this;
     var ts = null, tc = null, active = false, longTimer = null, isLong = false, swiped = false, startControl = null;
-    var SW = 30, LT = 200, TT = 10;
+    var SW = 42, LT = 560, TT = 14;
 
     function handleStart(e) {
       if (!e.touches || e.touches.length === 0) return;
@@ -951,10 +997,13 @@ var game = {
       tc = { x: ts.x, y: ts.y };
       startControl = self.scene === 'game' ? self._findControlButton(ts.x, ts.y) : null;
       active = true; isLong = false; swiped = false;
-      if (!(startControl && startControl.id === 'rotate')) {
+      if (!startControl) {
         longTimer = setTimeout(function() {
           isLong = true;
-          if (self.scene === 'game') self._onSoftDrop(true);
+          if (self.scene === 'game' && !self.showTutorial) {
+            self._togglePause();
+            vibrateShort();
+          }
         }, LT);
       }
     }
@@ -966,9 +1015,10 @@ var game = {
       if (startControl && startControl.id === 'rotate') return;
       var dx = tc.x - ts.x, dy = tc.y - ts.y;
       if (Math.abs(dx) > TT || Math.abs(dy) > TT) { if (longTimer) { clearTimeout(longTimer); longTimer = null; } }
-      if (self.scene === 'game') {
+      if (self.scene === 'game' && !self.showTutorial) {
         if (Math.abs(dx) > SW && !swiped) { swiped = true; self._move(dx > 0 ? 1 : -1, 0); }
-        if (dy > SW * 2 && !swiped) { swiped = true; self._hardDrop(); }
+        if (dy > SW * 1.15 && !swiped) { swiped = true; self._softDropPulse(); }
+        if (dy < -SW * 1.15 && !swiped) { swiped = true; self._hardDrop(); }
       }
     }
 
@@ -977,13 +1027,22 @@ var game = {
       if (longTimer) { clearTimeout(longTimer); longTimer = null; }
       if (isLong) {
         isLong = false;
-        if (self.scene === 'game') self._onSoftDrop(false);
         startControl = null;
         return;
       }
       if (!tc || !ts) return;
       var dx = Math.abs(tc.x - ts.x), dy = Math.abs(tc.y - ts.y), dt = Date.now() - ts.time;
       if (self.scene === 'game') {
+        if (self.paused && dx < TT && dy < TT) {
+          self._togglePause();
+          startControl = null;
+          return;
+        }
+        if (self.showTutorial) {
+          self._dismissTutorial();
+          startControl = null;
+          return;
+        }
         if (startControl) {
           if (startControl.id === 'rotate') self._rotate90Button();
           else if (startControl.id === 'left') self._move(-1, 0);
@@ -1001,6 +1060,8 @@ var game = {
         if (dx < TT && dy < TT && dt < 300) {
           self._handleSceneTap(ts.x, ts.y);
         }
+      } else if (self.scene === 'howto') {
+        if (dx < TT && dy < TT && dt < 300) self._handleSceneTap(ts.x, ts.y);
       }
       startControl = null;
     }
@@ -1054,15 +1115,24 @@ var game = {
         var btn = this.menuButtons[i];
         if (x >= btn.x && x <= btn.x + btn.w && y >= btn.y && y <= btn.y + btn.h) {
           if (btn.id === 'play') this._startGame();
+          if (btn.id === 'howto') this.scene = 'howto';
           return;
         }
       }
+    } else if (this.scene === 'howto') {
+      this.scene = 'menu';
     } else if (this.scene === 'gameover') {
       if (this.retryBtn && x >= this.retryBtn.x && x <= this.retryBtn.x + this.retryBtn.w && y >= this.retryBtn.y && y <= this.retryBtn.y + this.retryBtn.h) {
         this._startGame();
         return;
       }
+      if (this.shareBtn && x >= this.shareBtn.x && x <= this.shareBtn.x + this.shareBtn.w && y >= this.shareBtn.y && y <= this.shareBtn.y + this.shareBtn.h) {
+        shareAppMessage('我在方块大作战闯到了第' + this.level + '关');
+        return;
+      }
     } else if (this.scene === 'game') {
+      if (this.paused) { this._togglePause(); return; }
+      if (this.showTutorial) { this._dismissTutorial(); return; }
       if (this._handleControlTap(x, y)) return;
     }
   },
@@ -1117,6 +1187,9 @@ var game = {
     this.clearingRows = []; this.clearTimer = 0; this.clearSnapshot = null;
     this.comboText = null; this.comboTextTimer = 0;
     this.shakeX = 0; this.shakeY = 0; this.shakeDur = 0;
+    this.softDropUntil = 0;
+    this.clearReason = 'gameover';
+    this.showTutorial = getStorageSync('bb_tutorial_seen') !== '1';
     this.lastLockFx = null;
     this._nextPiece();
     // Show banner ad during gameplay
@@ -1130,16 +1203,24 @@ var game = {
     }
   },
 
+  _dismissTutorial: function() {
+    this.showTutorial = false;
+    setStorageSync('bb_tutorial_seen', '1');
+  },
+
   _nextPiece: function() {
     if (this.nextPieces.length === 0) this.nextPieces = this.bag.peek(3);
     this.piece = this.nextPieces.shift();
     this.nextPieces.push(this.bag.next());
-    if (boardIsTopOut(this.board, this.piece)) this._endGame();
+    if (boardIsTopOut(this.board, this.piece)) {
+      this.clearReason = 'gameover';
+      this._endGame();
+    }
   },
 
   get dropInterval() { return Math.max(MIN_DROP_INTERVAL, BASE_DROP_INTERVAL - (this.level - 1) * LEVEL_SPEED_DECREASE); },
 
-  _canAct: function() { return !this.gameOver && !this.paused && this.clearingRows.length === 0; },
+  _canAct: function() { return !this.gameOver && !this.paused && !this.showTutorial && this.clearingRows.length === 0; },
 
   _move: function(dx, dy) {
     if (!this.piece || !this._canAct()) return;
@@ -1162,9 +1243,18 @@ var game = {
         this.lockMoves = 0; this.lockTimer = 0;
         this.rotateFxTimer = dir === 2 ? 420 : 260;
         this.rotateFxDir = dir >= 0 ? 1 : -1;
+        vibrateShort();
         return;
       }
     }
+  },
+
+  _softDropPulse: function() {
+    if (!this.piece || !this._canAct()) return;
+    this.softDropUntil = Date.now() + 520;
+    this._onSoftDrop(true);
+    this._move(0, 1);
+    vibrateShort();
   },
 
   _hardDrop: function() {
@@ -1176,7 +1266,7 @@ var game = {
     this.lastLockFx = { type: this.piece.type, x: this.piece.x, y: this.piece.y };
     this._lock();
     this.shakeX = FX.SHAKE_SMALL; this.shakeDur = 70;
-    vibrateLong();
+    vibrateShort();
   },
 
   _hold: function() {
@@ -1226,9 +1316,7 @@ var game = {
       if (this.combo > 1) pts += SCORE_COMBO * this.combo * this.level;
       if (this.isFever) pts *= 2;
       this.score += pts; this.lines += n;
-      var threshold = this.level <= 10 ? LINES_PER_LEVEL_EARLY : LINES_PER_LEVEL_LATE;
-      var linesForLevel = this.level * threshold;
-      if (this.lines >= linesForLevel && this.level < MAX_LEVEL) this.level++;
+      while (this.level < TEST_MAX_LEVEL && this.lines >= nextLevelLineTarget(this.level)) this.level++;
 
       this.feverGauge = Math.min(100, this.feverGauge + n * FEVER_CHARGE_PER_LINE);
       if (this.feverGauge >= 100 && !this.isFever) {
@@ -1244,7 +1332,11 @@ var game = {
       this.shakeDur = 90 + cleared.length * 35 + Math.min(this.combo, 5) * 18;
       playImpactSound(cleared.length + this.combo + (this.isFever ? 4 : 0));
       if (n === 4) { this.shakeX += 3; this.shakeDur += 90; }
-      vibrateLong();
+      if (n >= 3 || this.combo >= 3) vibrateLong(); else vibrateShort();
+      if (this.level >= TEST_MAX_LEVEL && this.lines >= testCompleteLineTarget()) {
+        this._completeTest();
+        return;
+      }
     } else {
       if (this.lastLockFx) {
         var b = this.renderer.getBounds();
@@ -1274,9 +1366,15 @@ var game = {
     return 'NICE';
   },
 
+  _completeTest: function() {
+    this.clearReason = 'complete';
+    this._endGame();
+  },
+
   _endGame: function() {
     this.gameOver = true; this.scene = 'gameover';
     this.lastStats = { score: this.score, level: this.level, lines: this.lines, maxCombo: this.maxCombo };
+    vibrateLong();
 
     // Save high score
     var prev = getStorageSync('tt_high_score') || 0;
@@ -1292,13 +1390,23 @@ var game = {
     // Retry button position
     var cw = this.screenW, ch = this.screenH;
     this.retryBtn = { x: cw / 2 - Math.min(250, cw * 0.72) / 2, y: ch * 0.58, w: Math.min(250, cw * 0.72), h: 58 };
+    this.shareBtn = { x: this.retryBtn.x, y: this.retryBtn.y + 70, w: this.retryBtn.w, h: 52 };
   },
 
   _loop: function(now) {
     var dt = now - this.lastTime; this.lastTime = now;
     this.animTime += dt;
+    this.fpsAvg = this.fpsAvg * 0.94 + (dt > 0 ? Math.min(60, 1000 / dt) : 60) * 0.06;
+    if (!this.lowPowerMode && this.fpsAvg < 42) {
+      this.lowPowerMode = true;
+      if (this.fx && this.fx.setLowPower) this.fx.setLowPower(true);
+    }
 
     if (this.scene === 'game' && !this.gameOver && !this.paused) {
+      if (this.softDropUntil && Date.now() > this.softDropUntil) {
+        this.softDropUntil = 0;
+        this._onSoftDrop(false);
+      }
       // Clear animation
       if (this.clearingRows.length > 0) {
         this.clearTimer -= dt;
@@ -1309,7 +1417,7 @@ var game = {
       }
 
       // Gravity
-      if (this.piece && this.clearingRows.length === 0) {
+      if (!this.showTutorial && this.piece && this.clearingRows.length === 0) {
         var interval = this.dropInterval;
         if (this.isSoftDropping) interval /= 20;
         this.dropTimer += dt;
@@ -1325,7 +1433,7 @@ var game = {
       }
 
       // Lock delay
-      if (this.isLocking && this.piece && this.clearingRows.length === 0) {
+      if (!this.showTutorial && this.isLocking && this.piece && this.clearingRows.length === 0) {
         this.lockTimer += dt;
         if (this.lockTimer >= LOCK_DELAY || this.lockMoves >= LOCK_DELAY_MAX_MOVES) this._lock();
       }
@@ -1353,6 +1461,8 @@ var game = {
 
     if (this.scene === 'menu') {
       this._renderMenu();
+    } else if (this.scene === 'howto') {
+      this._renderHowTo();
     } else if (this.scene === 'game') {
       this._renderGame();
     } else if (this.scene === 'gameover') {
@@ -1391,7 +1501,11 @@ var game = {
     ctx.shadowColor = '#22dfff'; ctx.shadowBlur = 24; ctx.fillStyle = '#fff'; ctx.fillText('方块大作战', cw / 2, ch * 0.16);
     ctx.shadowBlur = 0;
     ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = '#7cf6ff'; ctx.fillText('BLOCK BATTLE', cw / 2, ch * 0.16 + 38);
-    ctx.font = '13px sans-serif'; ctx.fillStyle = '#8ea4c7'; ctx.fillText('霓虹连击 · 极速消除', cw / 2, ch * 0.16 + 62);
+    ctx.font = '15px sans-serif'; ctx.fillStyle = '#b8c7e8'; ctx.fillText('10关测试版 · 轻松上手', cw / 2, ch * 0.16 + 64);
+    var high = Number(getStorageSync('tt_high_score') || 0);
+    ctx.font = 'bold 18px sans-serif'; ctx.fillStyle = '#ffe45e'; ctx.shadowColor = '#ffe45e'; ctx.shadowBlur = 8;
+    ctx.fillText('最高分 ' + high.toLocaleString(), cw / 2, ch * 0.16 + 96);
+    ctx.shadowBlur = 0;
     ctx.restore();
 
     // Buttons
@@ -1421,16 +1535,34 @@ var game = {
     }
 
     // Footer
-    ctx.fillStyle = '#60708f'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('滑动移动 · 点击旋转 · 上滑暂存', cw / 2, ch - 40);
+    ctx.fillStyle = '#8ea4c7'; ctx.font = '15px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('左右滑动移动 · 点击旋转 · 长按暂停', cw / 2, ch - 40);
+  },
+
+  _renderHowTo: function() {
+    var ctx = this.ctx, cw = this.screenW, ch = this.screenH;
+    drawBackdrop(ctx, cw, ch, this.animTime, false);
+    var panelW = Math.min(cw * 0.86, 330), panelH = 360, x = (cw - panelW) / 2, y = ch * 0.18;
+    drawPanel(ctx, x, y, panelW, panelH, 'rgba(124,246,255,0.58)', 0.96);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#22dfff'; ctx.shadowBlur = 14; ctx.font = '900 30px sans-serif';
+    ctx.fillText('玩法说明', cw / 2, y + 44);
+    ctx.shadowBlur = 0;
+    var tips = ['左右滑动：移动方块', '点击：旋转', '下滑：加速下落', '上滑：直接落下', '长按：暂停'];
+    ctx.textAlign = 'left'; ctx.font = 'bold 20px sans-serif'; ctx.fillStyle = '#e8f2ff';
+    for (var i = 0; i < tips.length; i++) ctx.fillText(tips[i], x + 34, y + 100 + i * 42);
+    var bw = Math.min(240, panelW - 52), bx = cw / 2 - bw / 2, by = y + panelH - 78;
+    drawPanel(ctx, bx, by, bw, 54, 'rgba(255,111,216,0.62)', 0.96);
+    ctx.textAlign = 'center'; ctx.fillStyle = '#ffffff'; ctx.font = 'bold 21px sans-serif';
+    ctx.fillText('我知道了', cw / 2, by + 28);
   },
 
   _renderGame: function() {
     var ctx = this.ctx, cw = this.screenW, ch = this.screenH;
 
     this.renderer.clear(this.isFever, this.animTime);
-    drawGameTopBar(ctx, cw, { score: this.score });
-    drawGameChrome(ctx, cw, ch, { score: this.score, level: this.level });
+    drawGameTopBar(ctx, cw, { score: this.score, highScore: Number(getStorageSync('tt_high_score') || 0) });
+    drawGameChrome(ctx, cw, ch, { score: this.score, level: this.level, lines: this.lines, nextTarget: nextLevelLineTarget(this.level) });
 
     if (this.fx) this.fx.drawBehind(ctx);
 
@@ -1535,6 +1667,27 @@ var game = {
       ctx.fillStyle = '#fff'; ctx.shadowColor = '#22dfff'; ctx.shadowBlur = 16; ctx.font = 'bold 36px sans-serif'; ctx.fillText('暂停', this.screenW / 2, this.screenH / 2 - 28);
       ctx.shadowBlur = 0; ctx.fillStyle = '#8ea4c7'; ctx.font = '16px sans-serif'; ctx.fillText('点击屏幕继续', this.screenW / 2, this.screenH / 2 + 20);
     }
+    if (this.showTutorial) this._renderTutorialOverlay();
+  },
+
+  _renderTutorialOverlay: function() {
+    var ctx = this.ctx, cw = this.screenW, ch = this.screenH;
+    ctx.save();
+    ctx.fillStyle = 'rgba(2,5,16,0.72)';
+    ctx.fillRect(0, 0, cw, ch);
+    var w = Math.min(cw * 0.86, 330), h = 292, x = (cw - w) / 2, y = ch * 0.24;
+    drawPanel(ctx, x, y, w, h, 'rgba(124,246,255,0.62)', 0.98);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffffff'; ctx.shadowColor = '#22dfff'; ctx.shadowBlur = 12; ctx.font = '900 28px sans-serif';
+    ctx.fillText('新手提示', cw / 2, y + 42);
+    ctx.shadowBlur = 0;
+    var tips = ['左右滑动移动', '点击屏幕旋转', '下滑加速，上滑直接落下', '长按屏幕暂停'];
+    ctx.font = 'bold 19px sans-serif'; ctx.fillStyle = '#e8f2ff';
+    for (var i = 0; i < tips.length; i++) ctx.fillText(tips[i], cw / 2, y + 92 + i * 36);
+    this.tutorialBtn = { x: cw / 2 - 100, y: y + h - 68, w: 200, h: 50 };
+    drawPanel(ctx, this.tutorialBtn.x, this.tutorialBtn.y, this.tutorialBtn.w, this.tutorialBtn.h, 'rgba(255,111,216,0.64)', 0.98);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 20px sans-serif'; ctx.fillText('开始试玩', cw / 2, this.tutorialBtn.y + 26);
+    ctx.restore();
   },
 
   _renderGameOver: function() {
@@ -1549,24 +1702,22 @@ var game = {
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 
     // Title
-    ctx.font = 'bold 40px sans-serif'; ctx.fillStyle = '#ff5b7d'; ctx.shadowColor = '#ff5b7d'; ctx.shadowBlur = 22;
-    ctx.fillText('游戏结束', cw / 2, ch * 0.12);
+    ctx.font = 'bold 38px sans-serif'; ctx.fillStyle = this.clearReason === 'complete' ? '#ffe45e' : '#ff5b7d'; ctx.shadowColor = this.clearReason === 'complete' ? '#ffe45e' : '#ff5b7d'; ctx.shadowBlur = 22;
+    ctx.fillText(this.clearReason === 'complete' ? '测试版通关' : '游戏结束', cw / 2, ch * 0.12);
     ctx.shadowBlur = 0;
 
     if (this.lastStats) {
       var panelW = Math.min(cw * 0.78, 310);
       var panelX = (cw - panelW) / 2;
-      drawPanel(ctx, panelX, ch * 0.18, panelW, 176, 'rgba(255,111,216,0.48)', 0.96);
+      drawPanel(ctx, panelX, ch * 0.18, panelW, 214, 'rgba(255,111,216,0.48)', 0.96);
       ctx.fillStyle = '#8ea4c7'; ctx.font = '13px sans-serif';
       ctx.fillText('最终得分', cw / 2, ch * 0.18 + 28);
       ctx.fillStyle = '#fff'; ctx.font = 'bold 38px sans-serif'; ctx.shadowColor = '#22dfff'; ctx.shadowBlur = 12;
       ctx.fillText(this.lastStats.score.toLocaleString(), cw / 2, ch * 0.18 + 70);
       ctx.shadowBlur = 0;
-      var beatRate = Math.min(96, 38 + Math.floor(Math.sqrt(Math.max(0, this.lastStats.score)) * 0.42 + this.lastStats.level * 2));
-      var targetGap = Math.max(0, 15000 - this.lastStats.score);
-      ctx.fillStyle = '#ffe45e'; ctx.font = 'bold 13px sans-serif'; ctx.fillText('你击败了 ' + beatRate + '% 玩家', cw / 2, ch * 0.18 + 98);
-      ctx.fillStyle = '#b8c7e8'; ctx.font = '12px sans-serif'; ctx.fillText(targetGap > 0 ? '距离目标只差 ' + targetGap.toLocaleString() + ' 分' : '已突破今日目标', cw / 2, ch * 0.18 + 120);
-      var statY = ch * 0.18 + 150;
+      var high = Number(getStorageSync('tt_high_score') || 0);
+      ctx.fillStyle = '#ffe45e'; ctx.font = 'bold 15px sans-serif'; ctx.fillText('当前最高分 ' + high.toLocaleString(), cw / 2, ch * 0.18 + 104);
+      var statY = ch * 0.18 + 146;
       var stats = [
         ['等级', this.lastStats.level, '#7cf6ff'],
         ['行数', this.lastStats.lines, '#34f389'],
@@ -1577,14 +1728,9 @@ var game = {
         ctx.fillStyle = '#8ea4c7'; ctx.font = '11px sans-serif'; ctx.fillText(stats[si][0], sx, statY);
         ctx.fillStyle = stats[si][2]; ctx.font = 'bold 18px sans-serif'; ctx.fillText(stats[si][1], sx, statY + 24);
       }
+      ctx.fillStyle = '#b8c7e8'; ctx.font = '13px sans-serif';
+      ctx.fillText(this.clearReason === 'complete' ? '10关测试完成，感谢试玩' : '再试一次，冲到第10关', cw / 2, ch * 0.18 + 196);
     }
-
-    // Revive button
-    var reviveW = Math.min(270, cw * 0.78), reviveX = (cw - reviveW) / 2, reviveY = ch * 0.49;
-    drawPanel(ctx, reviveX, reviveY, reviveW, 50, 'rgba(255,228,94,0.72)', 0.98);
-    ctx.fillStyle = '#fff7bf'; ctx.shadowColor = '#ffe45e'; ctx.shadowBlur = 18; ctx.font = 'bold 18px sans-serif';
-    ctx.fillText('观看视频立即复活', cw / 2, reviveY + 26);
-    ctx.shadowBlur = 0;
 
     // Retry button
     if (this.retryBtn) {
@@ -1597,13 +1743,11 @@ var game = {
       ctx.shadowBlur = 0;
     }
 
-    // Double reward button
-    var dbx = cw / 2 - 96, dby = this.retryBtn ? this.retryBtn.y + 68 : ch * 0.68;
-    drawPanel(ctx, dbx, dby, 192, 44, 'rgba(255,111,216,0.52)', 0.88);
-    ctx.fillStyle = '#ffb8ed'; ctx.font = 'bold 16px sans-serif'; ctx.fillText('领取双倍积分', cw / 2, dby + 23);
-
-    ctx.fillStyle = '#8ea4c7'; ctx.font = '12px sans-serif';
-    ctx.fillText('再消 1 行即可升级', cw / 2, dby + 62);
+    if (this.shareBtn) {
+      var sb = this.shareBtn;
+      drawPanel(ctx, sb.x, sb.y, sb.w, sb.h, 'rgba(255,111,216,0.52)', 0.94);
+      ctx.fillStyle = '#ffecfb'; ctx.font = 'bold 20px sans-serif'; ctx.fillText('分享给朋友', cw / 2, sb.y + 27);
+    }
 
     // Back to menu
     ctx.fillStyle = '#60708f'; ctx.font = '14px sans-serif';
